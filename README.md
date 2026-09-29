@@ -24,9 +24,10 @@ Img2Latex converts handwritten math, lecture notes, and problem sets into profes
 - **Multimodal Vision AI**: Gemma 3N with vision encoder/adapter for image-to-LaTeX conversion
 - **ARM64 Optimizations**: Accelerate framework (vImage) for image preprocessing, INT4 quantized models
 - **ARM-optimized backends (via MediaPipe)**: MediaPipe integrates ARM kernels (KleidiAI/XNNPACK); **SME2 is enabled by default** on A18/M4-class devices, NEON elsewhere
-- **SME2 Indicator & Benchmark**: A badge shows whether SME2 or NEON is running; Settings has an SME2 toggle, and the Analytics tab benchmarks both modes on your own phone
+- **SME2 Indicator & Benchmark**: The Generate screen shows whether SME2 or NEON is running; Settings has an SME2 toggle, and the Analytics tab benchmarks both modes on your own phone
 - **Client-Side PDF Rendering**: WKWebView + latex.js for zero-dependency PDF generation
-- **Real-Time Metrics**: Live CPU, memory, battery, and thermal monitoring during AI inference
+- **Real-Time Metrics**: Live speed, memory, battery, and thermal monitoring during AI inference
+- **Native UI**: Built from stock SwiftUI components (lists, forms, toolbars, Swift Charts)
 - **Model Management**: Download and switch between Gemma 3N 2B and 4B models at runtime
 - **Persistent History**: SwiftData storage with search, favorites, and refinement tracking
 - **LaTeX Refinement**: Iterative improvements with user feedback and history
@@ -163,7 +164,7 @@ Thermal states: `.nominal`, `.fair`, `.serious`, `.critical` → UI displays war
 
 ## SME2 Results
 
-MediaPipe Tasks GenAI 0.10.24 statically links an XNNPACK build that contains KleidiAI's SME2 kernels but keeps them behind a flag that is off by default. Img2Latex sets that flag at launch, before the model loads, when the CPU reports `FEAT_SME2` (A18/M4 and later) and the **Arm SME2 acceleration** setting is on (the default). XNNPACK reads the flag once per process, so changing the setting takes effect after a restart, and the first launch in the new mode rebuilds XNNPACK's weight cache (about 8 s, once). A badge on the main screen and the Analytics tab show which path is running.
+MediaPipe Tasks GenAI 0.10.24 statically links an XNNPACK build that contains KleidiAI's SME2 kernels but keeps them behind a flag that is off by default. Img2Latex sets that flag at launch, before the model loads, when the CPU reports `FEAT_SME2` (A18/M4 and later) and the **Arm SME2** setting (Settings → Acceleration) is on (the default). XNNPACK reads the flag once per process, so changing the setting takes effect after a restart, and the first launch in the new mode rebuilds XNNPACK's weight cache (about 8 s, once). The Generate screen ("On-device · SME2" under the Generate button) and the Analytics tab show which path is running.
 
 Measured on an iPhone 16 Pro Max (A18 Pro, iOS 27.0) with Gemma 3N E2B, 18 NEON vs 18 SME2 interleaved runs, 64 output tokens:
 
@@ -232,7 +233,7 @@ The core service managing Gemma 3N inference, implemented as a singleton with `@
 - Streaming LaTeX generation with 30fps UI updates
 - Performance metrics collection (generation time, tokens/sec, memory, battery)
 - Model switching (2B ↔ 4B) at runtime
-- Real-time system monitoring (CPU, memory, thermal state)
+- Real-time system monitoring (memory, battery, thermal state)
 
 **Key Methods**:
 ```swift
@@ -252,15 +253,14 @@ func switchModel(to modelIdentifier: GemmaModelIdentifier) async
 - Historical metrics (last 50 generations) for analytics
 - Live metrics updated every 1 second via Timer
 
-### LaTeXRenderer
+### LaTeXWebView
 
-WKWebView-based renderer using latex.js CDN for client-side PDF generation.
+WKWebView-based preview using latex.js CDN for client-side rendering and PDF export.
 
 **Features**:
 - Strips unsupported LaTeX packages (tikz, graphicx, geometry, fancyhdr)
 - Injects HTML with latex.js CDN and LaTeX source
-- Waits for JavaScript compilation (2s timeout)
-- Uses `WKWebView.createPDF()` for native PDF generation
+- **Share PDF** exports the rendered page with `WKWebView.createPDF()`
 
 **Supported LaTeX**:
 - `\documentclass{article}`, `\usepackage{amsmath}`, `\usepackage{amssymb}`
@@ -326,26 +326,13 @@ func searchGenerations(query: String) -> [Generation]
 
 Real-time and historical performance analytics UI using Charts framework.
 
-**Real-Time Metrics**:
-- Memory usage gauge (actual resident memory via `ProcessMetrics`)
-- Battery level (UIDevice monitoring)
-- Thermal state (ProcessInfo)
-- Current tokens/second (live during generation)
+A `List` of `LabeledContent` rows and Swift Charts:
 
-**Historical Charts**:
-- Line chart: Generation time over last 20 generations
-- Bar chart: Tokens/second per generation
-- Area chart: Memory usage during generation
-- Sparklines: Real-time memory history (last 30 data points)
-
-**System Information**:
-- Model name and size
-- Acceleration (SME2 / NEON) and whether the CPU supports SME2
-- SME2 vs NEON benchmark (see [SME2 Results](#sme2-results))
-- Total generations
-- Average tokens/second
-- Peak memory usage
-- System uptime
+- **This Session**: generations, average time and speed, tokens generated, peak memory
+- **Charts**: generation time and tokens/second over the last 20 generations
+- **Now**: resident memory (via `ProcessMetrics`), thermal state, battery level
+- **Model & System**: model, load time, acceleration (SME2 / NEON), CPU SME2 support, device, iOS version
+- **SME2 Benchmark**: SME2 vs NEON on this device (see [SME2 Results](#sme2-results))
 
 ---
 
@@ -414,9 +401,9 @@ Aggregate statistics computed on-demand:
 1. User selects images via PhotosPicker or Camera
 2. `OnDeviceLLMService.generateLaTeX()` processes images
 3. LaTeX string returned and displayed in preview
-4. User triggers PDF generation (on-demand)
-5. `LaTeXRenderer.renderLaTeXToPDF()` compiles to PDF
-6. `StorageManager.saveGeneration()` persists all data
+4. `StorageManager.saveGeneration()` saves the images and LaTeX to history
+5. `LaTeXWebView` renders the LaTeX with latex.js
+6. **Share PDF** exports the rendered page with `WKWebView.createPDF()`
 
 ### Path 2: Refinement Flow
 
@@ -508,11 +495,11 @@ Download the `.task` file and either:
 - Look for `.task` files in Documents/models/ directory
 
 **Slow inference**:
-- On A18/M4-class devices, check that the badge on the Generate screen says **SME2** (Settings → Arm SME2 acceleration)
+- On A18/M4-class devices, check that the Generate screen says **On-device · SME2** (Settings → Arm SME2)
 - The first launch after changing the SME2 setting rebuilds the model cache (about 8 s, once)
 - Enable Performance Mode in Settings
 - Use Gemma 2B instead of 4B for faster inference
-- Ensure device is not thermally throttled (thermal state shown in Stats)
+- Ensure device is not thermally throttled (thermal state shown in Analytics)
 
 **PDF rendering fails**:
 - Check that LaTeX uses only supported packages
@@ -559,7 +546,6 @@ Img2Latex/
 ├── ContentView.swift                  # Main TabView with Generate/History/Analytics/Settings
 │
 ├── OnDeviceLLMService.swift           # Core LLM inference service (Gemma 3N)
-├── LaTeXRenderer.swift                # WKWebView + latex.js PDF generation
 ├── ModelDownloadManager.swift         # R2 model downloads with progress tracking
 ├── StorageManager.swift               # SwiftData persistence layer
 ├── ProcessMetrics.swift               # System metrics utilities
@@ -568,13 +554,12 @@ Img2Latex/
 ├── GenerationStatus.swift             # Published state for generation progress
 ├── ModelConfig.swift                  # Downloadable model configuration (R2 URLs)
 │
-├── OnboardingView.swift               # First-run onboarding flow
+├── OnboardingView.swift               # Welcome screen with model download
 ├── SettingsView.swift                 # Settings UI (performance mode, model management)
 ├── StatsView.swift                    # Analytics UI with Charts framework
 ├── HistoryView.swift                  # Generation history with search and favorites
 ├── LaTeXPreviewWithActionsView.swift  # LaTeX editor with refinement and PDF export
-├── LaTeXWebView.swift                 # LaTeX rendering preview component
-├── PDFViewer.swift                    # PDF preview component
+├── LaTeXWebView.swift                 # latex.js rendering and PDF export
 │
 ├── SME2/
 │   ├── xnn_sme2.c                     # C shim: FEAT_SME2 check, XNNPACK SME2 flag, active-mode readback
@@ -598,7 +583,7 @@ Benchmarks depend on device (chip, thermal state) and input complexity. The quic
 4. Record:
    - Model initialization time
    - Time to first token and tokens/second (estimated in UI)
-   - Peak resident memory (shown in Stats)
+   - Peak resident memory (shown in Analytics)
    - Battery delta per generation
 
 ---
