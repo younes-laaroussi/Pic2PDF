@@ -262,6 +262,21 @@ struct StatsView: View {
                         }
                     }
 
+                    // SME2 vs NEON benchmark
+                    InfoSection(title: "SME2 Benchmark") {
+                        NavigationLink(destination: BenchmarkView()) {
+                            HStack {
+                                Image(systemName: "stopwatch")
+                                Text("Run SME2 benchmark")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+
                     // Usage Statistics (Credits section removed as per task 2)
                     InfoSection(title: "Usage Statistics") {
                         VStack(alignment: .leading, spacing: 10) {
