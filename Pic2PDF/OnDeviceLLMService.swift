@@ -258,10 +258,7 @@ final class OnDeviceLLMService: ObservableObject {
     @Published var currentMemoryUsage: Double = 0.0
     @Published var batteryLevel: Int = 100
     @Published var thermalState: ProcessInfo.ThermalState = .nominal
-    @Published var deviceTemperature: Double = 0.0
-    @Published var cpuUsage: Double = 0.0
     @Published var currentTokensPerSecond: Double = 0.0
-    @Published var realtimeMemoryHistory: [Double] = [] // Real-time memory tracking during generation
     
     // MARK: - Live Generation Streaming
     @Published var streamingLaTeX: String = ""
@@ -360,26 +357,6 @@ final class OnDeviceLLMService: ObservableObject {
         if currentMemoryUsage > peakMemoryUsage {
             peakMemoryUsage = currentMemoryUsage
         }
-        
-        // Add to real-time history if we have streaming content (generation in progress)
-        if !streamingLaTeX.isEmpty {
-            realtimeMemoryHistory.append(currentMemoryUsage)
-            // Keep only last 30 data points for performance
-            if realtimeMemoryHistory.count > 30 {
-                realtimeMemoryHistory.removeFirst()
-            }
-        }
-
-        // CPU usage (simulated for demo)
-        cpuUsage = ProcessMetrics.currentCPUUsage()
-
-        // Temperature simulation (IOKit not available in iOS apps)
-        // In production, would use private APIs or device sensors
-        let baseTemp: Double = 38.0 // Base temperature for iOS device
-        let thermalAdjustment: Double = thermalState == .nominal ? 0 :
-                                       thermalState == .fair ? 3 :
-                                       thermalState == .serious ? 8 : 12
-        deviceTemperature = baseTemp + Double.random(in: -2...2) + thermalAdjustment
     }
 
     private func recordGenerationMetrics(inputImages: Int, outputTokens: Int, generationTime: TimeInterval, batteryBefore: Int) {
@@ -458,7 +435,7 @@ final class OnDeviceLLMService: ObservableObject {
         preferredModel = modelIdentifier
         await initializeModel()
     }
-    
+
     /// Switch to a different model
     /// - Parameter modelIdentifier: The model to switch to
     func switchModel(to modelIdentifier: ModelIdentifier) async {
@@ -511,7 +488,6 @@ final class OnDeviceLLMService: ObservableObject {
             status.progress = 0.1
             streamingLaTeX = "" // Clear previous stream
             currentTokensPerSecond = 0.0 // Reset real-time metric
-            realtimeMemoryHistory = [] // Clear real-time memory history
         }
 
         // Create a new session for this generation task.
@@ -651,7 +627,6 @@ final class OnDeviceLLMService: ObservableObject {
             status.progress = 0.1
             streamingLaTeX = "" // Clear previous stream
             currentTokensPerSecond = 0.0 // Reset real-time metric
-            realtimeMemoryHistory = [] // Clear real-time memory history
         }
 
         // Create a new session for refinement (text-only, no images) using user settings
