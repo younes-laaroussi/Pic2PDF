@@ -506,26 +506,24 @@ final class OnDeviceLLMService: ObservableObject {
             realtimeMemoryHistory = [] // Clear real-time memory history
         }
 
-        // Create a new session for this generation task using user settings
-        // Performance mode can adjust parameters slightly for speed
-        let temp = isPerformanceModeEnabled ? min(userTemperature, 0.6) : userTemperature
-        let tP = isPerformanceModeEnabled ? min(userTopP, 0.95) : userTopP
-        let tK = isPerformanceModeEnabled ? max(userTopK, 60) : userTopK
-        
+        // Create a new session for this generation task.
+        // Transcription uses greedy decoding (topK = 1) so the same photo always gives the same LaTeX;
+        // temperature and topP have no effect then. The user's sampling settings apply to refinement only.
         NSLog("[OnDeviceLLM] Creating vision-enabled session (perfMode=\(isPerformanceModeEnabled))")
-        NSLog("[OnDeviceLLM] Parameters: temp=\(temp), topP=\(tP), topK=\(tK)")
+        NSLog("[OnDeviceLLM] Parameters: greedy (topK=1)")
         let session = try AIChatSession(
             model: currentModel!,
-            topK: tK,
-            topP: tP,
-            temperature: temp,
+            topK: 1,
+            topP: 1.0,
+            temperature: 1.0,
             enableVisionModality: true
         )
         NSLog("[OnDeviceLLM] Session created with vision modality enabled")
 
         // Downscale images in parallel (Accelerate) for lower memory and faster vision path
         os_signpost(.begin, log: signpostLog, name: "PreprocessImages")
-        let maxDimension = isPerformanceModeEnabled ? 1024 : 1536
+        // 768 is the vision encoder's largest native input size; larger images only cost time and memory.
+        let maxDimension = isPerformanceModeEnabled ? 512 : 768
         let processedCGImages: [CGImage] = await withTaskGroup(of: CGImage?.self) { group in
             for img in images {
                 group.addTask(priority: .userInitiated) {
