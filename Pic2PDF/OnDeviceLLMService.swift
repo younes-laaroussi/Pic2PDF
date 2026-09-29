@@ -114,8 +114,39 @@ struct OnDeviceModel {
         options.visionAdapterPath = extractedVisionAdapterPath.path
         options.maxImages = 5 // Support up to 5 images for document conversion
 
+        // XNNPACK writes packed weights to <modelPath>.xnnpack_cache, but the cache is not keyed by ISA:
+        // loading a NEON-built cache with SME2 on aborts the process. Rebuild it when the mode changes.
+        let launchMode = SME2Support.requestedModeAtLaunch
+        let weightCacheURL = URL(fileURLWithPath: modelCopyPath.path + ".xnnpack_cache")
+        let weightCacheModeKey = "xnnCacheBuiltMode_\(modelIdentifier.fileName)"
+        try OnDeviceModel.invalidateWeightCacheIfNeeded(at: weightCacheURL, builtModeKey: weightCacheModeKey, launchMode: launchMode)
+
         inference = try LlmInference(options: options)
+        UserDefaults.standard.set(launchMode.rawValue, forKey: weightCacheModeKey)
         SME2Support.recordActiveModeAfterLoad()
+    }
+
+    /// Deletes XNNPACK's weight cache if it was built in a different SME2 mode, or by an older
+    /// app version (no marker; those only ran NEON). Costs a one-time rebuild (~8 s) on this load.
+    private static func invalidateWeightCacheIfNeeded(at cacheURL: URL, builtModeKey: String, launchMode: SME2Support.Mode) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: cacheURL.path) else { return }
+
+        let builtMode = UserDefaults.standard.string(forKey: builtModeKey)
+        guard builtMode != launchMode.rawValue else { return }
+
+        let sizeMB = Double((try? cacheURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) / (1024 * 1024)
+        do {
+            try fileManager.removeItem(at: cacheURL)
+            NSLog("[SME2] Deleted XNNPACK weight cache \(cacheURL.lastPathComponent) (\(String(format: "%.0f", sizeMB)) MB), built for \(builtMode ?? "unknown/older app"), now \(launchMode.rawValue)")
+        } catch {
+            NSLog("[SME2] Failed to delete XNNPACK weight cache \(cacheURL.lastPathComponent): \(error)")
+            // A cache from the other ISA would abort the process on load; fail with an error instead.
+            if (builtMode ?? SME2Support.Mode.neon.rawValue) != launchMode.rawValue {
+                let errorMessage = "Could not reset the model cache for the new acceleration mode. Please restart the app."
+                throw NSError(domain: "ModelSetupError", code: 1002, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+            }
+        }
     }
 
     private static func extractVisionModels(fromArchive archiveURL: URL, toDirectory destinationURL: URL, filesToExtract: [String]) throws {
