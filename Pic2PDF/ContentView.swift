@@ -291,23 +291,6 @@ struct MainGenerationView: View {
     }
 }
 
-/// Capsule badge showing which CPU path the model runs on: SME2 or NEON.
-struct AccelerationBadge: View {
-    let mode: SME2Support.Mode
-    
-    var body: some View {
-        Text(mode.displayName)
-            .font(.caption2)
-            .fontWeight(.bold)
-            .foregroundColor(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(mode == .sme2 ? Color.accentColor : Color(.systemGray))
-            .clipShape(Capsule())
-            .accessibilityLabel("Acceleration: \(mode.displayName)")
-    }
-}
-
 // MARK: - Generation Progress
 
 /// Full-screen progress shown over the tabs while the model is generating or refining.
