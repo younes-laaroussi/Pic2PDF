@@ -180,6 +180,7 @@ final class AIChatSession {
          topK: Int = 40,
          topP: Float = 0.9,
          temperature: Float = 0.7,
+         randomSeed: Int? = nil,
          enableVisionModality: Bool = true) throws {
         self.model = model
 
@@ -187,6 +188,9 @@ final class AIChatSession {
         options.topk = topK
         options.topp = topP
         options.temperature = temperature
+        if let randomSeed = randomSeed {
+            options.randomSeed = randomSeed
+        }
         options.enableVisionModality = enableVisionModality
         
         NSLog("[AIChatSession] Creating session with visionModality=\(enableVisionModality), topK=\(topK), temp=\(temperature)")
@@ -261,6 +265,12 @@ final class OnDeviceLLMService: ObservableObject {
     
     // MARK: - Live Generation Streaming
     @Published var streamingLaTeX: String = ""
+
+    // MARK: - Busy State
+    /// True while generateLaTeX or refineLaTeX is running.
+    @Published private(set) var isGenerating = false
+    /// True while the SME2 benchmark is running. Generation is refused meanwhile (one model, one session at a time).
+    @Published private(set) var isBenchmarking = false
 
     // MARK: - Public Model Access
     /// Public access to current model information for UI display
@@ -478,6 +488,11 @@ final class OnDeviceLLMService: ObservableObject {
         guard isReady() else {
             throw OnDeviceLLMError.notInitialized
         }
+        guard !isBenchmarking else {
+            throw OnDeviceLLMError.generationFailed("The SME2 benchmark is running. Try again when it finishes.")
+        }
+        isGenerating = true
+        defer { isGenerating = false }
 
         let startTime = Date()
         let batteryBefore = batteryLevel
@@ -616,6 +631,11 @@ final class OnDeviceLLMService: ObservableObject {
         guard isReady() else {
             throw OnDeviceLLMError.notInitialized
         }
+        guard !isBenchmarking else {
+            throw OnDeviceLLMError.generationFailed("The SME2 benchmark is running. Try again when it finishes.")
+        }
+        isGenerating = true
+        defer { isGenerating = false }
 
         let startTime = Date()
         let batteryBefore = batteryLevel
@@ -704,6 +724,87 @@ final class OnDeviceLLMService: ObservableObject {
         )
 
         return latexResult
+    }
+
+    // MARK: - SME2 Benchmark
+
+    /// Runs one warm-up and `measuredRuns` measured generations of `image` on the already-loaded model
+    /// (no second LlmInference, which would double memory). Uses the normal generation prompt with fixed
+    /// greedy settings so SME2 and NEON launches are comparable. Runs are not added to the generation history.
+    func runSME2Benchmark(image: CGImage,
+                          measuredRuns: Int,
+                          progress: (String) -> Void) async throws -> [SME2BenchmarkRun] {
+        guard isReady(), let model = currentModel else {
+            throw OnDeviceLLMError.notInitialized
+        }
+        guard !isGenerating, !isBenchmarking else {
+            throw OnDeviceLLMError.generationFailed("Another generation is running. Try again when it finishes.")
+        }
+        isBenchmarking = true
+        defer { isBenchmarking = false }
+
+        // Same downscale as generateLaTeX, at a fixed size so Performance Mode doesn't change the input.
+        let input = downscaleCGImageAccelerate(image, maxDimension: SME2Benchmark.imageMaxDimension) ?? image
+        NSLog("[SME2Benchmark] Mode=\(SME2Support.activeMode?.displayName ?? "unknown"), image \(input.width)x\(input.height)")
+
+        var runs: [SME2BenchmarkRun] = []
+        for index in 0...measuredRuns {
+            progress(index == 0 ? "Warm-up run..." : "Run \(index) of \(measuredRuns)...")
+            let run = try await runBenchmarkGeneration(model: model, image: input)
+            NSLog("[SME2Benchmark] \(index == 0 ? "warm-up" : "run \(index)"): ttft=\(run.timeToFirstTokenSeconds)s decode=\(run.decodeTokensPerSecond) tok/s total=\(run.totalSeconds)s tokens=\(run.outputTokens) peak=\(run.peakMemoryMB) MB")
+            if index > 0 {
+                runs.append(run)
+            }
+        }
+        return runs
+    }
+
+    private func runBenchmarkGeneration(model: OnDeviceModel, image: CGImage) async throws -> SME2BenchmarkRun {
+        // Session creation (~3 s) is not part of any timing, as in the research harness.
+        let session = try AIChatSession(
+            model: model,
+            topK: 1,
+            topP: 1,
+            temperature: 1,
+            randomSeed: 0,
+            enableVisionModality: true
+        )
+        let prompt = createLaTeXGenerationPrompt(additionalPrompt: nil)
+
+        let memorySampler = PeakMemorySampler()
+        memorySampler.start()
+        defer { memorySampler.stop() }
+        let thermalBefore = ProcessInfo.processInfo.thermalState
+
+        let imageStart = ProcessInfo.processInfo.systemUptime
+        try session.addImageToQuery(image: image)
+
+        let generateStart = ProcessInfo.processInfo.systemUptime
+        let stream = try await session.generateLaTeX(prompt: prompt)
+        var fullResponse = ""
+        var firstChunkTime: TimeInterval?
+        for try await chunk in stream {
+            if firstChunkTime == nil && !chunk.isEmpty {
+                firstChunkTime = ProcessInfo.processInfo.systemUptime
+            }
+            fullResponse += chunk
+        }
+        let endTime = ProcessInfo.processInfo.systemUptime
+
+        memorySampler.sample()
+        let thermalAfter = ProcessInfo.processInfo.thermalState
+        let outputTokens = (try? session.sizeInTokens(text: fullResponse)) ?? 0
+        let firstChunk = firstChunkTime ?? endTime
+        let decodeSeconds = endTime - firstChunk
+
+        return SME2BenchmarkRun(
+            timeToFirstTokenSeconds: firstChunk - generateStart,
+            decodeTokensPerSecond: outputTokens > 1 && decodeSeconds > 0 ? Double(outputTokens - 1) / decodeSeconds : 0,
+            totalSeconds: endTime - imageStart,
+            outputTokens: outputTokens,
+            peakMemoryMB: memorySampler.peakMB,
+            thermalState: thermalAfter.rawValue > thermalBefore.rawValue ? thermalAfter : thermalBefore
+        )
     }
 
     // MARK: - Private Helper Methods
