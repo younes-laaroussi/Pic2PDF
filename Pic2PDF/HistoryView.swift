@@ -13,364 +13,212 @@ struct HistoryView: View {
     @StateObject private var storageManager = StorageManager.shared
     @State private var searchQuery = ""
     @State private var showFavoritesOnly = false
-    @State private var selectedGeneration: Generation?
-    @State private var showDeleteAlert = false
-    @State private var generationToDelete: Generation?
-    @Environment(\.dismiss) var dismiss
-    
-    var filteredGenerations: [Generation] {
-        let gens = showFavoritesOnly ? storageManager.favoriteGenerations : storageManager.generations
-        
-        if searchQuery.isEmpty {
-            return gens
-        } else {
-            return storageManager.searchGenerations(query: searchQuery)
+    @State private var showClearAlert = false
+
+    private var filteredGenerations: [Generation] {
+        let generations = showFavoritesOnly ? storageManager.favoriteGenerations : storageManager.generations
+        guard !searchQuery.isEmpty else { return generations }
+        return generations.filter { generation in
+            generation.displayTitle.localizedCaseInsensitiveContains(searchQuery) ||
+            generation.latex.localizedCaseInsensitiveContains(searchQuery)
         }
     }
-    
+
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Statistics Bar
-                statisticsBar
-                
-                // Search and Filter
-                VStack(spacing: 12) {
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.gray)
-                        TextField("Search history...", text: $searchQuery)
-                            .textFieldStyle(.plain)
-                        
-                        if !searchQuery.isEmpty {
-                            Button(action: { searchQuery = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }
-                    .padding(10)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(10)
-                    
-                    Toggle(isOn: $showFavoritesOnly) {
-                        Label("Favorites Only", systemImage: "star.fill")
-                    }
-                    .tint(.yellow)
-                }
-                .padding()
-                
-                // Generations List
-                if filteredGenerations.isEmpty {
-                    emptyStateView
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 16) {
-                            ForEach(filteredGenerations, id: \.id) { generation in
-                                GenerationCard(
-                                    generation: generation,
-                                    onTap: { selectedGeneration = generation },
-                                    onDelete: {
-                                        generationToDelete = generation
-                                        showDeleteAlert = true
-                                    },
-                                    onToggleFavorite: {
-                                        try? storageManager.toggleFavorite(generation)
-                                    }
-                                )
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .navigationTitle("History")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button(role: .destructive, action: clearAllData) {
-                            Label("Clear All History", systemImage: "trash")
-                        }
+        NavigationStack {
+            List {
+                ForEach(filteredGenerations, id: \.id) { generation in
+                    NavigationLink {
+                        GenerationDetailView(generation: generation)
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        GenerationRow(generation: generation)
                     }
-                }
-            }
-            .sheet(item: $selectedGeneration) { generation in
-                GenerationDetailView(generation: generation)
-            }
-            .alert("Delete Generation", isPresented: $showDeleteAlert) {
-                Button("Cancel", role: .cancel) {}
-                Button("Delete", role: .destructive) {
-                    if let gen = generationToDelete {
-                        try? storageManager.deleteGeneration(gen)
-                    }
-                }
-            } message: {
-                Text("Are you sure you want to delete this generation? This action cannot be undone.")
-            }
-        }
-    }
-    
-    private var statisticsBar: some View {
-        let stats = storageManager.getStatistics()
-        
-        return HStack(spacing: 20) {
-            StatItem(icon: "doc.on.doc", value: "\(stats.totalGenerations)", label: "Docs")
-            StatItem(icon: "photo.stack", value: "\(stats.totalImages)", label: "Images")
-            StatItem(icon: "star.fill", value: "\(stats.totalFavorites)", label: "Favorites")
-            StatItem(icon: "externaldrive", value: stats.formattedStorage, label: "Storage")
-        }
-        .padding()
-        .background(Color(.systemGray6))
-    }
-    
-    private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: showFavoritesOnly ? "star.slash" : "clock.arrow.circlepath")
-                .font(.system(size: 60))
-                .foregroundColor(.gray)
-            
-            Text(showFavoritesOnly ? "No favorites yet" : "No history yet")
-                .font(.headline)
-            
-            Text(showFavoritesOnly ? "Star your favorite generations to see them here" : "Your PDF generations will appear here")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    
-    private func clearAllData() {
-        try? storageManager.clearAllData()
-    }
-}
-
-struct StatItem: View {
-    let icon: String
-    let value: String
-    let label: String
-    
-    var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundColor(.blue)
-            Text(value)
-                .font(.headline)
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-struct GenerationCard: View {
-    let generation: Generation
-    let onTap: () -> Void
-    let onDelete: () -> Void
-    let onToggleFavorite: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(generation.displayTitle)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        
-                        Text(generation.timestamp.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    Button(action: onToggleFavorite) {
-                        Image(systemName: generation.isFavorite ? "star.fill" : "star")
-                            .foregroundColor(generation.isFavorite ? .yellow : .gray)
-                    }
-                    .buttonStyle(.plain)
-                }
-                
-                // Preview images
-                if !generation.imageDataArray.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(0..<min(generation.imageDataArray.count, 5), id: \.self) { index in
-                                if let image = UIImage(data: generation.imageDataArray[index]) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 60, height: 80)
-                                        .clipped()
-                                        .cornerRadius(8)
-                                }
-                            }
-                            
-                            if generation.imageCount > 5 {
-                                Text("+\(generation.imageCount - 5)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 60, height: 80)
-                                    .background(Color(.systemGray5))
-                                    .cornerRadius(8)
-                            }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            try? storageManager.deleteGeneration(generation)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
-                }
-                
-                HStack {
-                    Label("\(generation.imageCount) images", systemImage: "photo")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Spacer()
-                    
-                    if !generation.refinementHistory.isEmpty {
-                        Label("\(generation.refinementHistory.count) refinements", systemImage: "pencil")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            try? storageManager.toggleFavorite(generation)
+                        } label: {
+                            Label(generation.isFavorite ? "Unfavorite" : "Favorite",
+                                  systemImage: generation.isFavorite ? "star.slash" : "star")
+                        }
+                        .tint(.yellow)
                     }
-                    
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
-                    }
-                    .buttonStyle(.plain)
                 }
             }
-            .padding()
-            .background(Color(.systemBackground))
-            .cornerRadius(12)
-            .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+            .overlay {
+                if filteredGenerations.isEmpty {
+                    if !searchQuery.isEmpty {
+                        ContentUnavailableView.search(text: searchQuery)
+                    } else if showFavoritesOnly {
+                        ContentUnavailableView("No Favorites", systemImage: "star", description: Text("Swipe right on a document to add it to your favorites."))
+                    } else {
+                        ContentUnavailableView("No History", systemImage: "clock", description: Text("Documents you generate appear here."))
+                    }
+                }
+            }
+            .searchable(text: $searchQuery)
+            .navigationTitle("History")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Toggle(isOn: $showFavoritesOnly) {
+                            Label("Favorites Only", systemImage: "star")
+                        }
+                        Button(role: .destructive) {
+                            showClearAlert = true
+                        } label: {
+                            Label("Clear History", systemImage: "trash")
+                        }
+                        .disabled(storageManager.generations.isEmpty)
+                    } label: {
+                        Label("Options", systemImage: "ellipsis.circle")
+                    }
+                }
+            }
+            .alert("Clear History?", isPresented: $showClearAlert) {
+                Button("Clear", role: .destructive) {
+                    try? storageManager.clearAllData()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This deletes all saved documents and can't be undone.")
+            }
         }
-        .buttonStyle(.plain)
+    }
+}
+
+private struct GenerationRow: View {
+    let generation: Generation
+
+    var body: some View {
+        HStack(spacing: 12) {
+            thumbnail
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(generation.displayTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if generation.isFavorite {
+                Spacer()
+                Image(systemName: "star.fill")
+                    .foregroundStyle(.yellow)
+                    .imageScale(.small)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let data = generation.imageDataArray.first, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 44, height: 58)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        } else {
+            Image(systemName: "doc.text")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 44, height: 58)
+        }
+    }
+
+    private var subtitle: String {
+        let images = generation.imageCount == 1 ? "1 image" : "\(generation.imageCount) images"
+        let refinementCount = generation.refinementHistory.count
+        guard refinementCount > 0 else { return images }
+        let refinements = refinementCount == 1 ? "1 refinement" : "\(refinementCount) refinements"
+        return "\(images) · \(refinements)"
     }
 }
 
 struct GenerationDetailView: View {
     let generation: Generation
-    @Environment(\.dismiss) var dismiss
     @State private var webView: WKWebView?
     @State private var shareURL: URL?
     @State private var showShareSheet = false
-    
+
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Live LaTeX Render
-                    LaTeXWebView(latex: generation.latex) { view in
-                        webView = view
-                    }
-                    .frame(height: 400)
-                    .cornerRadius(12)
-                    .shadow(radius: 5)
-                    
-                    // Info Section
-                    VStack(alignment: .leading, spacing: 16) {
-                        HistoryInfoRow(label: "Created", value: generation.timestamp.formatted(date: .long, time: .shortened))
-                        HistoryInfoRow(label: "Images", value: "\(generation.imageCount)")
-                        
-                        if !generation.refinementHistory.isEmpty {
-                            HistoryInfoRow(label: "Refinements", value: "\(generation.refinementHistory.count)")
-                        }
-                        
-                        Divider()
-                        
-                        // Source Images
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Source Images")
-                                .font(.headline)
-                            
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(generation.getImages(), id: \.self) { image in
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 120, height: 160)
-                                            .clipped()
-                                            .cornerRadius(12)
-                                    }
-                                }
-                            }
-                        }
-                        
-                        Divider()
-                        
-                        // LaTeX Source
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("LaTeX Source")
-                                .font(.headline)
-                            
-                            ScrollView {
-                                Text(generation.latex)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding()
-                                    .background(Color(.systemGray6))
-                                    .cornerRadius(8)
-                            }
-                            .frame(height: 200)
-                        }
-                        
-                        // Refinement History
-                        if !generation.refinementHistory.isEmpty {
-                            Divider()
-                            
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Refinement History")
-                                    .font(.headline)
-                                
-                                ForEach(generation.refinementHistory.indices, id: \.self) { index in
-                                    let refinement = generation.refinementHistory[index]
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Refinement \(index + 1)")
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
-                                        
-                                        Text(refinement.timestamp.formatted(date: .abbreviated, time: .shortened))
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                        
-                                        Text(refinement.feedback)
-                                            .font(.caption)
-                                            .padding(8)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .background(Color(.systemGray6))
-                                            .cornerRadius(6)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .padding()
+        List {
+            Section {
+                LaTeXWebView(latex: generation.latex) { view in
+                    webView = view
                 }
-                .padding()
+                .frame(height: 420)
+                .listRowInsets(EdgeInsets())
             }
-            .navigationTitle(generation.displayTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: shareAsPDF) {
-                        Image(systemName: "square.and.arrow.up")
+
+            Section("Details") {
+                LabeledContent("Created", value: generation.timestamp.formatted(date: .long, time: .shortened))
+                LabeledContent("Images", value: "\(generation.imageCount)")
+                if !generation.refinementHistory.isEmpty {
+                    LabeledContent("Refinements", value: "\(generation.refinementHistory.count)")
+                }
+            }
+
+            if !generation.imageDataArray.isEmpty {
+                Section("Photos") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(generation.getImages(), id: \.self) { image in
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 90, height: 120)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
                     }
                 }
             }
-            .sheet(isPresented: $showShareSheet) {
-                if let shareURL = shareURL {
-                    ShareSheet(items: [shareURL])
+
+            Section("LaTeX") {
+                Text(generation.latex)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+
+            if !generation.refinementHistory.isEmpty {
+                Section("Refinements") {
+                    ForEach(generation.refinementHistory.indices, id: \.self) { index in
+                        let refinement = generation.refinementHistory[index]
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(refinement.feedback)
+                            Text(refinement.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
+        .navigationTitle(generation.displayTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: shareAsPDF) {
+                    Label("Share PDF", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let shareURL = shareURL {
+                ShareSheet(items: [shareURL])
+            }
+        }
     }
-    
+
     private func shareAsPDF() {
         guard let webView = webView else { return }
         webView.exportPDF { result in
@@ -394,33 +242,17 @@ struct GenerationDetailView: View {
     }
 }
 
-struct HistoryInfoRow: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .foregroundColor(.secondary)
-            Spacer()
-            Text(value)
-                .fontWeight(.medium)
-        }
-    }
-}
-
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
-    
+
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
         return controller
     }
-    
+
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 #Preview {
     HistoryView()
 }
-
