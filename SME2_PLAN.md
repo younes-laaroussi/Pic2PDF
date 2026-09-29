@@ -195,26 +195,26 @@ New `Pic2PDF/SME2/BenchmarkView.swift` + a small runner, reachable from a "Run S
 ## 5. Left for the Mac session [mac]
 
 1. `pod install`, fix any compile errors from the cloud-written Swift (expected to be few). The likeliest
-   spots are listed in §7.3; the SwiftUI files were never compiled.
+   spots are listed in §7.3 and §8.3. SwiftUI was only type-checked against stubs, never compiled for real.
 2. Re-sign: Xcode → Settings → Accounts is currently signed out ("No Accounts"); sign in so automatic
    signing works for team `2BBZB7V6G7`.
 3. On the iPhone 16 Pro Max (filter the console on `[SME2]` and `[SME2Benchmark]`):
-   - Fresh install → badge (top right of the Generate screen) shows **SME2**, generate works.
+   - Fresh install → the Generate screen's bottom bar shows **On-device · SME2**, generate works.
      Log: `[SME2] supported=true enabled=true -> requesting SME2`, then `[SME2] XNNPACK is using SME2`.
    - **Update test:** install the current App Store version first, run it once (builds a NEON cache), then install
      this build over it → must **not** crash; log should show
      `[SME2] Deleted XNNPACK weight cache gemma-3n-E2B-it-int4.task.xnnpack_cache (… MB), built for unknown/older app, now sme2`;
-     badge **SME2**.
+     Generate screen shows **SME2**.
    - After that first SME2 launch, list the app's `Application Support` (Xcode → Devices → Download Container):
      the only `*.xnnpack_cache` should be the model's. If the vision encoder/adapter also have one, it needs the
      same invalidation (see §7.3).
-   - Toggle off → orange "Restart Img2Latex to apply." → relaunch → badge **NEON**, log shows the cache deleted
+   - Settings → Acceleration → Arm SME2 off → footer says "Restart Img2Latex to apply." → relaunch → **NEON**, log shows the cache deleted
      (`built for sme2, now neon`), no crash. Toggle back on, same in reverse.
    - `PIC2PDF_FORCE_NO_SME2=1` launch (scheme → Run → Arguments → Environment Variables) → toggle disabled and off,
-     "Not supported on this device…", Stats "CPU supports SME2: No", badge NEON. The Debug-section toggle
+     "Not supported on this device…", Analytics "CPU supports SME2: No", Generate screen NEON. The Debug-section toggle
      ("Simulate device without SME2") only exists in Debug builds, and **the Run scheme uses Release**, so use the
      env var, or switch Run to Debug to see it.
-   - Benchmark (Analytics → SME2 Benchmark card → Run SME2 benchmark) in both modes → the comparison table shows
+   - Benchmark (Analytics → SME2 Benchmark → Run Benchmark) in both modes → the comparison section shows
      the TTFT improvement in the same direction as §2. While it runs, try Generate: it should refuse with
      "The SME2 benchmark is running…". Expect the UI to pause ~3 s before each run (session creation on the
      main thread, same as a normal generation).
@@ -225,8 +225,7 @@ New `Pic2PDF/SME2/BenchmarkView.swift` + a small runner, reachable from a "Run S
      `benchmark_neon` (delete the app or those keys).
    - 10 real handwritten photos → check quality with greedy + 768. Include **portrait camera photos** and
      photo-library HEICs: see the orientation issue in §7.4, which may matter more for quality than either change.
-   - Visual pass: badge position on the Generate screen, the new Settings rows, the Stats rows and the
-     benchmark screen in light/dark mode.
+   - Visual and flow pass over the rebuilt UI in light and dark mode: see the checklist in §8.4.
 4. Archive and submit to App Store Connect (user's account).
 
 ## 6. Out of scope for this release
@@ -251,11 +250,14 @@ on `sme2-default`, not merged and not tagged. `project.pbxproj` was not touched;
 - **T3** As specified. One addition: if deleting the cache fails and the cache is (or, with no marker, is assumed
   to be) from the other ISA, the model load throws "Could not reset the model cache…" instead of letting XNNPACK
   SIGABRT. The marker records the *requested* mode, as the plan says.
-- **T4** Badge is a right-aligned row at the top of `MainGenerationView` (not a toolbar item, to avoid iOS 26
-  glass styling around a colored capsule). `AccelerationBadge` sits next to `Badge` in `ContentView.swift`.
+- **T4** *(Replaced in §8: the indicator is now "On-device · SME2/NEON" in the Generate screen's bottom bar,
+  and the capsule badge is gone.)* Badge is a right-aligned row at the top of `MainGenerationView` (not a toolbar
+  item, to avoid iOS 26 glass styling around a colored capsule). `AccelerationBadge` sits next to `Badge` in
+  `ContentView.swift`.
   SME2 = accent color, NEON = `systemGray` (white text stays readable in dark mode; `Color.secondary` would not).
   Stats shows "Unknown" if XNNPACK's config could not be read and "Not loaded" before the model loads.
-- **T5** The explanation / "Not supported…" text and the restart notice are captions under the toggle (the section
+- **T5** *(Replaced in §8: the toggle is now "Arm SME2" in its own Acceleration section, with the message as the
+  section footer.)* The explanation / "Not supported…" text and the restart notice are captions under the toggle (the section
   already holds Performance Mode, so a section footer would be ambiguous). Text says **"Img2Latex"** (the
   home-screen name, `CFBundleDisplayName`), not "Img2LaTeX". On unsupported devices the toggle shows *off*.
   The Debug toggle lives in its own `#if DEBUG` "Debug" section.
@@ -291,8 +293,9 @@ on `sme2-default`, not merged and not tagged. `project.pbxproj` was not touched;
   invalidation for every marker/mode combination plus an undeletable cache; the benchmark flow end to end
   against a timed fake MediaPipe stream (warm-up excluded, TTFT/decode/total math, memory sampler running during
   prefill, generation refused mid-benchmark, JSON round trip).
-- **Not compiled at all:** `BenchmarkView.swift` and the SwiftUI edits in `ContentView.swift`, `SettingsView.swift`,
-  `StatsView.swift`, `Pic2PDFApp.swift`.
+- **Not compiled at all (in this first pass):** `BenchmarkView.swift` and the SwiftUI edits in `ContentView.swift`,
+  `SettingsView.swift`, `StatsView.swift`, `Pic2PDFApp.swift`. The UI pass in §8 later type-checked all screens
+  against a SwiftUI stub.
 
 ### 7.3 Not sure about (check first on the Mac)
 
@@ -300,8 +303,7 @@ on `sme2-default`, not merged and not tagged. `project.pbxproj` was not touched;
    convert in that one place.
 2. `@_silgen_name` declarations under `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: fine with Swift 6.2.4; if a
    newer compiler complains about isolation, mark the three declarations `nonisolated`.
-3. `BenchmarkView`: `Grid`/`GridRow` with `ForEach`, `.gridColumnAlignment` on header cells, and the
-   `Text`-returning `changeText(for:)`. Should compile on iOS 17.6, but it is the least-verified file.
+3. ~~`BenchmarkView` Grid layout~~: replaced by a plain `List` in §8, so this no longer applies.
 4. Simulator builds: `xnn_sme2.c` needs `xnn_internal_set_arm_sme2` / `xnn_init_hardware_config` from the
    simulator slice of `MediaPipeTasksGenAIC`. Only the device build was verified in September.
 5. Only `<model>.task.xnnpack_cache` is invalidated (per §2). If other XNNPACK caches show up (§5), extend T3.
@@ -324,4 +326,76 @@ on `sme2-default`, not merged and not tagged. `project.pbxproj` was not touched;
 3. Performance Mode refinement uses `topK ≥ 60`, but `LlmInference.Options.maxTopk` is never set (I believe
    MediaPipe's default is 40). Check that refinement in Performance Mode actually works.
 4. README's Podfile snippet still says `target 'Img2Latex'` and lacks the new `post_install` hook.
+
+## 8. UI simplification pass (2026-09-29, same session)
+
+Requested after T1–T10: "native only, libraries only, minimal custom code, simple and pretty". Every screen was
+rebuilt from stock SwiftUI (iOS 17 APIs; deployment target 17.6) with the behaviour kept. Net about −2,300 lines.
+One commit per screen: `661b12f` Generate, `f66e39a` Preview, `5b7dd9b` History, `cf2662c` Benchmark,
+`56c8771` Analytics, `08eb596` Settings, `7cc120d` Onboarding, `2a7109b` dead files, `e1c00d5` README.
+
+### 8.1 What each screen is now
+
+- **Generate:** `NavigationStack`; empty state is a `ContentUnavailableView` whose actions are the photo picker
+  and camera; photos show in a plain 3:4 grid; Clear / camera / picker in the toolbar. A bottom bar
+  (`safeAreaInset` on `.bar`) holds the prominent Generate button and the model state: spinner while loading,
+  the load error with **Try Again**, and **On-device · SME2/NEON** (this is now the SME2 indicator).
+  The full-screen model-loading overlay is gone, so History / Analytics / Settings stay usable while the model
+  loads. Take Photo only shows when a camera exists.
+- **Generating:** a `NavigationStack` + `List` page over the tabs (progress + status, speed, memory,
+  acceleration, last 12 lines of LaTeX) instead of the gradient overlay, metric cards and sparkline.
+- **Refine:** `Form` sheet with a multi-line `TextField`, Cancel / Refine, medium/large detents.
+- **Preview:** the web view with a bottom toolbar (Refine, Share PDF); the tab bar is hidden on this screen.
+- **History:** `List` + `.searchable`; swipe left to delete (no confirmation, the iOS convention), swipe right to
+  favorite; favorites filter and Clear History (confirmed) in a toolbar menu; `ContentUnavailableView` for
+  empty / no favorites / no search results. Detail is pushed (was a sheet) and is a `List` of sections.
+  The statistics bar was dropped (same numbers are in Settings → Storage).
+- **Analytics:** `List` of `LabeledContent` rows (This Session, Now, Model & System) plus two Swift Charts
+  (generation time, tokens/s). Removed: stat cards, gauges, range picker, memory/battery charts, and the
+  **fake CPU gauge (always 0%) and fake temperature (a random number)** with their service code.
+- **SME2 Benchmark:** `List`; comparison rows are `LabeledContent` with "NEON x · SME2 y" as subtitle and the
+  % change as value; device/date/hints in section footers.
+- **Settings:** `Form` sections: Acceleration (**Arm SME2** toggle, Running on, footer message), Debug (DEBUG
+  only), Performance, Refinement (sliders + steppers), AI Model (picker, sizes, download progress / button),
+  Storage, About (version from the bundle, Show Welcome Screen, links).
+- **Onboarding:** one Apple-style welcome screen (four feature rows, a `GroupBox` to pick and download the model,
+  Continue pinned at the bottom) instead of six dark gradient pages.
+- **Removed files:** `PDFViewer.swift`, `LaTeXRenderer.swift` (both unused). Also removed never-used views
+  (model selection sheet, status banner, polling view, save toast, `Badge`) and the Stop button that was always
+  hidden behind the generation overlay.
+- **Service:** `loadModelIfNeeded(_:)` loads a model when none is loaded (Try Again; Settings calls it after a
+  download, which fixes having to restart the app after the first download from Settings).
+
+### 8.2 How it was checked
+
+A stub SDK for SwiftUI, Charts and PhotosUI (plus UIKit/WebKit/PDFKit and app-type stubs) written from the
+iOS 17 signatures, then all rewritten screens plus the service and SME2 files type-checked with the project's
+settings (Swift 5 mode, default MainActor isolation, approachable-concurrency features): **no errors or warnings
+in the UI files**, also none in Swift 6 mode. Injected mistakes (wrong argument type, wrong enum case, extra
+argument) were caught, so view bodies really are checked. Limits: the stubs encode my reading of the SDK, and
+`#Preview` blocks were stripped (macros can't be stubbed). Nothing was rendered, so layout and looks are unverified.
+
+### 8.3 Not sure about
+
+1. Sheet/overlay timing on refine: Refine dismisses its sheet, pops the preview and shows the progress overlay in
+   one go (same sequence as before the redesign). Check that it lands back on the preview afterwards.
+2. `LabeledContent` with two `Text`s in its label (benchmark comparison rows) should render the second as a
+   subtitle; if it renders as one line, use a `VStack` label.
+3. The progress overlay is a `NavigationStack` in a `ZStack` above the `TabView`; confirm it fully covers the tab
+   bar on all devices.
+4. Settings: `Picker` selection is `llmService.selectedModel`, which may not be a downloaded model (pre-existing);
+   SwiftUI will log a "selection is invalid" warning in that case.
+5. Swipe-to-delete in History removes the item without a confirmation (standard on iOS); say if you want it back.
+
+### 8.4 Mac checklist for the UI
+
+- Generate: empty state (picker + camera), grid, Clear, the bottom bar in each model state (loading, error with
+  Try Again, ready with SME2/NEON), Generate → progress page → preview.
+- Delete the model file (or fresh install without a model) → error + Try Again on Generate; download in Settings →
+  model loads without restarting.
+- Preview: bottom toolbar, tab bar hidden, Refine sheet, Share PDF.
+- History: search, swipe actions, favorites filter, Clear History, pushed detail with Share PDF.
+- Analytics: charts after a couple of generations; benchmark screen in both modes.
+- Settings: every section; Show Welcome Screen; onboarding download, cancel and Continue.
+- Light and dark mode, and the largest Dynamic Type size, on each screen.
 
