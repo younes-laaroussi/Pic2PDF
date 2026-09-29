@@ -20,53 +20,31 @@ struct LaTeXPreviewWithActionsView: View {
     @State private var shareURL: URL?
     @State private var showShareSheet = false
     @Environment(\.dismiss) var dismiss
-    @StateObject private var storageManager = StorageManager.shared
 
     var body: some View {
-        VStack(spacing: 0) {
-            LaTeXWebView(latex: currentLaTeX) { view in
-                webView = view
-            }
-            .background(Color(.systemBackground))
-
-            HStack(spacing: 16) {
-                Button(action: { showRefinementSheet = true }) {
-                    VStack(spacing: 8) {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 24, weight: .medium))
-                        Text("Refine")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
-                }
-                .foregroundColor(.primary)
-
-                Button(action: sharePDF) {
-                    VStack(spacing: 8) {
-                        Image(systemName: "square.and.arrow.up.circle.fill")
-                            .font(.system(size: 24, weight: .medium))
-                        Text("Share")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
-                }
-                .foregroundColor(.primary)
-                .disabled(isExporting)
-            }
-            .padding()
-            .background(Color(.systemBackground))
-            .shadow(color: Color.black.opacity(0.05), radius: 8, y: -2)
+        LaTeXWebView(latex: currentLaTeX) { view in
+            webView = view
         }
         .navigationTitle("Preview")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button {
+                    showRefinementSheet = true
+                } label: {
+                    Label("Refine", systemImage: "wand.and.stars")
+                        .labelStyle(.titleAndIcon)
+                }
+
+                Spacer()
+
+                Button(action: sharePDF) {
+                    Label("Share PDF", systemImage: "square.and.arrow.up")
+                }
+                .disabled(isExporting)
+            }
+        }
         .sheet(isPresented: $showRefinementSheet) {
             RefinementView(
                 feedback: $refinementFeedback,
