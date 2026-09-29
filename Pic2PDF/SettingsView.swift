@@ -40,7 +40,7 @@ struct SettingsView: View {
                         Text("Optimizes for speed on ARM devices")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text("- Downscale images more aggressively\n- Lower max tokens\n- Slightly faster sampling")
+                        Text("- Downscale images more aggressively\n- Lower max tokens\n- Slightly faster sampling when refining")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -179,7 +179,7 @@ struct SettingsView: View {
                 } header: {
                     Text("LLM Parameters")
                 } footer: {
-                    Text("Advanced settings for AI model behavior. Changes take effect on next generation.")
+                    Text("Advanced settings for AI model behavior. Temperature, Top P and Top K apply to refinement; transcription always uses greedy decoding, so the same photo gives the same LaTeX.")
                 }
                 
                 // Storage Section
