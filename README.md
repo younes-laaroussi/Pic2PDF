@@ -1,11 +1,11 @@
 # Img2Latex Whitepaper
 
-**Stream multimodal AI inference at 5–10 tokens/sec (on Arm SME2-enabled devices). Watch Gemma 3N vision models convert math to LaTeX in real-time. Zero cloud APIs. Pure ARM64.**
+**Stream multimodal AI inference on-device, with Arm SME2 on by default on A18/M4-class chips (time to first token down 41% on iPhone 16 Pro Max) and NEON everywhere else. Watch Gemma 3N vision models convert math to LaTeX in real-time. Zero cloud APIs. Pure ARM64.**
 
 [![ARM64 Optimized](https://img.shields.io/badge/ARM64-Optimized-orange?style=flat-square&logo=arm)](https://www.arm.com/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.24-blue?style=flat-square)](https://developers.google.com/mediapipe)
 [![KleidiAI](https://img.shields.io/badge/KleidiAI-via%20MediaPipe-green?style=flat-square)](https://www.arm.com/technologies/kleidi)
-[![SME2 Compatible](https://img.shields.io/badge/SME2-Compatible-red?style=flat-square)](https://developer.arm.com/Architectures/Scalable%20Matrix%20Extension)
+[![SME2 On by Default](https://img.shields.io/badge/SME2-On%20by%20default-red?style=flat-square)](https://developer.arm.com/Architectures/Scalable%20Matrix%20Extension)
 [![On-Device](https://img.shields.io/badge/100%25-On--Device-purple?style=flat-square)]()
 [![INT4 Quantized](https://img.shields.io/badge/INT4-Quantized-yellow?style=flat-square)]()
 
@@ -23,7 +23,8 @@ Img2Latex converts handwritten math, lecture notes, and problem sets into profes
 - **100% On-Device Processing**: Zero cloud dependencies, all AI inference runs locally using MediaPipe Tasks GenAI
 - **Multimodal Vision AI**: Gemma 3N with vision encoder/adapter for image-to-LaTeX conversion
 - **ARM64 Optimizations**: Accelerate framework (vImage) for image preprocessing, INT4 quantized models
-- **ARM-optimized backends (via MediaPipe)**: MediaPipe integrates ARM kernels (KleidiAI/XNNPACK); SME2-compatible on supported devices
+- **ARM-optimized backends (via MediaPipe)**: MediaPipe integrates ARM kernels (KleidiAI/XNNPACK); **SME2 is enabled by default** on A18/M4-class devices, NEON elsewhere
+- **SME2 Indicator & Benchmark**: A badge shows whether SME2 or NEON is running; Settings has an SME2 toggle, and the Analytics tab benchmarks both modes on your own phone
 - **Client-Side PDF Rendering**: WKWebView + latex.js for zero-dependency PDF generation
 - **Real-Time Metrics**: Live CPU, memory, battery, and thermal monitoring during AI inference
 - **Model Management**: Download and switch between Gemma 3N 2B and 4B models at runtime
@@ -41,14 +42,14 @@ Img2Latex demonstrates ARM-optimized on-device AI for multimodal document unders
 **AI/ML Stack**:
 - **Gemma 3N (2B/4B)** [[1]](#references): INT4 quantized vision-language models running entirely on ARM CPU
 - **MediaPipe Tasks GenAI 0.10.24** [[2]](#references): Inference runtime with integrated ARM backends (KleidiAI/XNNPACK)
-- **SME2 Compatibility**: Automatic use of Scalable Matrix Extension 2 on iPhone 16/M4; NEON fallback on older devices
+- **SME2 by Default**: KleidiAI's Scalable Matrix Extension 2 kernels in XNNPACK are switched on at launch on A18/M4-class devices (MediaPipe ships them disabled), with a Settings toggle and an in-app benchmark; older devices use NEON ([details](#sme2-results))
 - **Vision Pipeline**: Extracts TFLite vision encoder/adapter from `.task` files; processes up to 5 images per inference
 
 **ARM64 Optimizations**:
 - **Accelerate Framework** [[3]](#references): vImage SIMD operations for parallel image downscaling (ARM NEON)
 - **INT4 Quantization**: 4-bit weights optimized for ARM integer pipelines 
 - **Thermal Management**: ProcessInfo monitoring with adaptive performance tuning
-- **Zero GPU Dependency**: Pure CPU inference leveraging ARM's efficient matrix operations via KleidiAI [[4]](#references)
+- **Zero GPU Dependency**: Pure CPU inference on KleidiAI [[4]](#references) matrix kernels: SME2 on A18/M4-class devices, NEON on older ones
 
 **Architecture**: SwiftUI app with MediaPipe inference service, client-side PDF rendering (WKWebView + latex.js), and SwiftData persistence
 
@@ -56,7 +57,7 @@ Img2Latex demonstrates ARM-optimized on-device AI for multimodal document unders
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **AI Inference** | MediaPipe Tasks GenAI 0.10.24 [[2]](#references) | On-device LLM runtime (ARM-optimized via KleidiAI [[4]](#references)/XNNPACK; SME2-compatible on supported devices) |
+| **AI Inference** | MediaPipe Tasks GenAI 0.10.24 [[2]](#references) | On-device LLM runtime (ARM-optimized via KleidiAI [[4]](#references)/XNNPACK; SME2 enabled by default on A18/M4-class devices, NEON otherwise) |
 | **Vision Processing** | Gemma 3N Vision Encoder/Adapter [[1]](#references) | Multimodal image understanding (extracted from .task files) |
 | **ARM Optimization** | Accelerate Framework (vImage) [[3]](#references) | SIMD-accelerated image downscaling |
 | **Model Format** | INT4 Quantized TFLite | 4-bit quantization for memory efficiency |
@@ -93,7 +94,7 @@ options.enableVisionModality = true
 
 ## ARM64 Optimizations
 
-Img2Latex leverages ARM64-specific features throughout the pipeline for maximum performance and energy efficiency. MediaPipe integrates ARM-optimized backends (KleidiAI [[4]](#references)/XNNPACK) and uses SME2 automatically on supported hardware; older devices fall back to NEON.
+Img2Latex leverages ARM64-specific features throughout the pipeline for maximum performance and energy efficiency. MediaPipe integrates ARM-optimized backends (KleidiAI [[4]](#references)/XNNPACK). Its XNNPACK build ships KleidiAI's SME2 kernels but leaves them switched off, so Img2Latex switches them on at launch on A18/M4-class devices; older devices use NEON (see [SME2 Results](#sme2-results)).
 
 ![MediaPipe Architecture](diagrams/out/4_mediapipe_architecture.svg)
 
@@ -134,10 +135,13 @@ Adaptive parameters based on thermal state and user preference:
 | Parameter | Normal Mode | Performance Mode |
 |-----------|-------------|------------------|
 | Max Tokens | 2000 | 1200 |
-| Image Size | 1536px | 1024px |
-| Top K | 40 | 60 |
-| Top P | 0.90 | 0.95 |
-| Temperature | 0.7 | 0.6 |
+| Image Size | 768px | 512px |
+| Transcription Decoding | Greedy (Top K 1) | Greedy (Top K 1) |
+| Refinement Top K | 40 | ≥ 60 |
+| Refinement Top P | 0.90 | ≤ 0.95 |
+| Refinement Temperature | 0.7 | ≤ 0.6 |
+
+Transcription always uses greedy decoding, so the same photo gives the same LaTeX; the sampling settings in Settings apply to refinement. 768px is the vision encoder's largest native input size.
 
 ### 4. Thermal Management
 
@@ -157,6 +161,24 @@ Thermal states: `.nominal`, `.fair`, `.serious`, `.critical` → UI displays war
 
 ---
 
+## SME2 Results
+
+MediaPipe Tasks GenAI 0.10.24 statically links an XNNPACK build that contains KleidiAI's SME2 kernels but keeps them behind a flag that is off by default. Img2Latex sets that flag at launch, before the model loads, when the CPU reports `FEAT_SME2` (A18/M4 and later) and the **Arm SME2 acceleration** setting is on (the default). XNNPACK reads the flag once per process, so changing the setting takes effect after a restart, and the first launch in the new mode rebuilds XNNPACK's weight cache (about 8 s, once). A badge on the main screen and the Analytics tab show which path is running.
+
+Measured on an iPhone 16 Pro Max (A18 Pro, iOS 27.0) with Gemma 3N E2B, 18 NEON vs 18 SME2 interleaved runs, 64 output tokens:
+
+| Metric | NEON | SME2 | Change |
+|--------|------|------|--------|
+| Time to first token | 5.02 s | 2.96 s | −41% |
+| Image to last token | 11.28 s | 8.67 s | −23% |
+| Decode speed | 10.1 tok/s | 11.0 tok/s | +10% |
+| Memory (after load / peak) | ~1.5 GB / ~1.85 GB | ~1.5 GB / ~1.85 GB | unchanged |
+| Model load (warm cache) | ~3.1 s | ~3.1 s | unchanged |
+
+To compare on your own phone: **Analytics → Run SME2 benchmark**, then turn SME2 off in Settings, restart, and run it again. The benchmark uses a bundled sample image, the normal prompt and greedy decoding (1 warm-up + 3 measured runs); results stay on the device.
+
+---
+
 ## Image-to-PDF Pipeline
 
 ![Multimodal Inference Flow](diagrams/out/2_multimodal_inference_flow.svg)
@@ -164,7 +186,7 @@ Thermal states: `.nominal`, `.fair`, `.serious`, `.critical` → UI displays war
 ### End-to-End Flow
 
 1. **Image Input**: PhotosPicker or Camera capture (up to 10 images)
-2. **Preprocessing**: Parallel vImage downscaling (1024-1536px max dimension)
+2. **Preprocessing**: Parallel vImage downscaling (768px max dimension, 512px in Performance Mode)
 3. **Vision Encoding**: TFLite vision encoder extracts image embeddings
 4. **Vision Adaptation**: Adapter projects embeddings to LLM input space
 5. **Gemma 3N Inference**: INT4 quantized model generates LaTeX (streaming, 30fps UI updates)
@@ -318,6 +340,8 @@ Real-time and historical performance analytics UI using Charts framework.
 
 **System Information**:
 - Model name and size
+- Acceleration (SME2 / NEON) and whether the CPU supports SME2
+- SME2 vs NEON benchmark (see [SME2 Results](#sme2-results))
 - Total generations
 - Average tokens/second
 - Peak memory usage
@@ -484,6 +508,8 @@ Download the `.task` file and either:
 - Look for `.task` files in Documents/models/ directory
 
 **Slow inference**:
+- On A18/M4-class devices, check that the badge on the Generate screen says **SME2** (Settings → Arm SME2 acceleration)
+- The first launch after changing the SME2 setting rebuilds the model cache (about 8 s, once)
 - Enable Performance Mode in Settings
 - Use Gemma 2B instead of 4B for faster inference
 - Ensure device is not thermally throttled (thermal state shown in Stats)
@@ -518,7 +544,7 @@ end
 
 | Dependency | Version | Purpose |
 |------------|---------|---------|
-| MediaPipeTasksGenAI | 0.10.24 | Swift API for LLM inference (ARM-optimized backends via KleidiAI [[4]](#references)/XNNPACK; SME2 on supported devices) |
+| MediaPipeTasksGenAI | 0.10.24 | Swift API for LLM inference (ARM-optimized backends via KleidiAI [[4]](#references)/XNNPACK; SME2 kernels enabled by the app on A18/M4-class devices) |
 | MediaPipeTasksGenAIC | 0.10.24 | C implementation (required by GenAI) |
 | ZIPFoundation | ~> 0.9 | Extract vision encoder/adapter from .task archives |
 
@@ -550,6 +576,13 @@ Img2Latex/
 ├── LaTeXWebView.swift                 # LaTeX rendering preview component
 ├── PDFViewer.swift                    # PDF preview component
 │
+├── SME2/
+│   ├── xnn_sme2.c                     # C shim: FEAT_SME2 check, XNNPACK SME2 flag, active-mode readback
+│   ├── SME2Support.swift              # SME2 on/off decision, set before the model loads
+│   ├── SME2Benchmark.swift            # Benchmark runner and stored results
+│   ├── BenchmarkView.swift            # SME2 vs NEON benchmark screen (Analytics tab)
+│   └── sme2_benchmark_sample.jpg      # Fixed benchmark input
+│
 └── Podfile                            # CocoaPods dependency specification
 ```
 
@@ -557,7 +590,7 @@ Img2Latex/
 
 ## Performance Benchmarks
 
-Benchmarks depend on device (chip, thermal state) and input complexity. To measure on your hardware:
+Benchmarks depend on device (chip, thermal state) and input complexity. The quickest comparison is the in-app SME2 benchmark (see [SME2 Results](#sme2-results)). For deeper profiling on your hardware:
 
 1. Build a Release configuration
 2. Enable signposts (already in code: ModelInit, FirstToken, PreprocessImages)
