@@ -13,6 +13,10 @@ struct SettingsView: View {
     @StateObject private var downloadManager = ModelDownloadManager.shared
     @StateObject private var llmService = OnDeviceLLMService.shared
     @AppStorage("performanceModeEnabled") private var performanceModeEnabled = false
+    @AppStorage("sme2Enabled") private var sme2Enabled = true
+    #if DEBUG
+    @AppStorage("debugForceNoSME2") private var debugForceNoSME2 = false
+    #endif
     
     // LLM Parameters
     @AppStorage("llmTemperature") private var temperature: Double = 0.7
@@ -41,9 +45,44 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     .padding(.top, 2)
+                    
+                    // SME2 is chosen once per launch (XNNPACK locks it on first model load), so changes need a restart.
+                    Toggle("Arm SME2 acceleration", isOn: SME2Support.isSupported ? $sme2Enabled : Binding.constant(false))
+                        .tint(.blue)
+                        .disabled(!SME2Support.isSupported)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        if SME2Support.isSupported {
+                            Text("Runs the AI model on the CPU's SME2 matrix units (XNNPACK / KleidiAI). Off uses NEON.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Not supported on this device (needs A18 / M4 or newer).")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        if SME2Support.needsRestart {
+                            Label("Restart Img2Latex to apply.", systemImage: "arrow.clockwise")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    .padding(.top, 2)
                 } header: {
                     Text("Performance")
                 }
+                
+                #if DEBUG
+                // Debug Section
+                Section {
+                    Toggle("Simulate device without SME2", isOn: $debugForceNoSME2)
+                        .tint(.blue)
+                } header: {
+                    Text("Debug")
+                } footer: {
+                    Text("Treats this device as unsupported to test the NEON fallback. Takes effect after a restart.")
+                }
+                #endif
                 
                 // LLM Parameters Section
                 Section {
