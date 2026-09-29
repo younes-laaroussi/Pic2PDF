@@ -450,6 +450,14 @@ final class OnDeviceLLMService: ObservableObject {
     func isReady() -> Bool {
         return isInitialized && currentSession != nil
     }
+
+    /// Loads `modelIdentifier` if no model is loaded yet, e.g. right after it was downloaded
+    /// or when the user retries after a failed load. Does nothing once a model is loaded.
+    func loadModelIfNeeded(_ modelIdentifier: ModelIdentifier) async {
+        guard !isInitialized else { return }
+        preferredModel = modelIdentifier
+        await initializeModel()
+    }
     
     /// Switch to a different model
     /// - Parameter modelIdentifier: The model to switch to
