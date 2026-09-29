@@ -17,364 +17,187 @@ struct SettingsView: View {
     #if DEBUG
     @AppStorage("debugForceNoSME2") private var debugForceNoSME2 = false
     #endif
-    
-    // LLM Parameters
+
+    // LLM Parameters (used when refining)
     @AppStorage("llmTemperature") private var temperature: Double = 0.7
     @AppStorage("llmTopP") private var topP: Double = 0.9
     @AppStorage("llmTopK") private var topK: Int = 40
     @AppStorage("llmMaxTokens") private var maxTokens: Int = 2000
-    
+
     @State private var showClearDataAlert = false
-    @State private var showResetParamsAlert = false
-    @Environment(\.dismiss) var dismiss
-    
+    @State private var downloadingModel: ModelIdentifier?
+
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
-                // Performance Section
+                // SME2 is chosen once per launch (XNNPACK locks it on first model load), so changes need a restart.
                 Section {
-                    Toggle("Performance Mode", isOn: $performanceModeEnabled)
-                        .tint(.blue)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Optimizes for speed on ARM devices")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("- Downscale images more aggressively\n- Lower max tokens\n- Slightly faster sampling when refining")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top, 2)
-                    
-                    // SME2 is chosen once per launch (XNNPACK locks it on first model load), so changes need a restart.
-                    Toggle("Arm SME2 acceleration", isOn: SME2Support.isSupported ? $sme2Enabled : Binding.constant(false))
-                        .tint(.blue)
+                    Toggle("Arm SME2", isOn: SME2Support.isSupported ? $sme2Enabled : Binding.constant(false))
                         .disabled(!SME2Support.isSupported)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        if SME2Support.isSupported {
-                            Text("Runs the AI model on the CPU's SME2 matrix units (XNNPACK / KleidiAI). Off uses NEON.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Text("Not supported on this device (needs A18 / M4 or newer).")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        if SME2Support.needsRestart {
-                            Label("Restart Img2Latex to apply.", systemImage: "arrow.clockwise")
-                                .font(.caption)
-                                .foregroundColor(.orange)
-                        }
+                    if let mode = llmService.accelerationMode {
+                        LabeledContent("Running on", value: mode.displayName)
                     }
-                    .padding(.top, 2)
                 } header: {
-                    Text("Performance")
+                    Text("Acceleration")
+                } footer: {
+                    Text(sme2Footer)
                 }
-                
+
                 #if DEBUG
-                // Debug Section
                 Section {
                     Toggle("Simulate device without SME2", isOn: $debugForceNoSME2)
-                        .tint(.blue)
                 } header: {
                     Text("Debug")
                 } footer: {
                     Text("Treats this device as unsupported to test the NEON fallback. Takes effect after a restart.")
                 }
                 #endif
-                
-                // LLM Parameters Section
+
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        // Temperature
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Temperature")
-                                    .font(.subheadline)
-                                Spacer()
-                                Text(String(format: "%.2f", temperature))
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                    Toggle("Performance Mode", isOn: $performanceModeEnabled)
+                } footer: {
+                    Text("Smaller images and shorter output for faster results.")
+                }
+
+                Section {
+                    VStack(alignment: .leading) {
+                        LabeledContent("Temperature", value: temperature, format: .number.precision(.fractionLength(2)))
+                        Slider(value: $temperature, in: 0.1...1.5, step: 0.05)
+                    }
+                    VStack(alignment: .leading) {
+                        LabeledContent("Top P", value: topP, format: .number.precision(.fractionLength(2)))
+                        Slider(value: $topP, in: 0.1...1.0, step: 0.05)
+                    }
+                    Stepper("Top K: \(topK)", value: $topK, in: 1...100)
+                    Stepper("Max Tokens: \(maxTokens)", value: $maxTokens, in: 500...4000, step: 100)
+                    Button("Reset to Defaults", action: resetLLMParameters)
+                } header: {
+                    Text("Refinement")
+                } footer: {
+                    Text("Transcription always uses greedy decoding, so the same photo gives the same LaTeX. Temperature, Top P and Top K apply when you refine. Max Tokens applies after the model reloads.")
+                }
+
+                Section {
+                    if ModelIdentifier.allCases.contains(where: { downloadManager.isModelDownloaded($0) }) {
+                        Picker("Current Model", selection: Binding(
+                            get: { llmService.selectedModel },
+                            set: { newModel in
+                                Task {
+                                    await llmService.switchModel(to: newModel)
+                                }
                             }
-                            Slider(value: $temperature, in: 0.1...1.5, step: 0.05)
-                                .tint(.blue)
-                            Text("Controls randomness. Lower = more focused, Higher = more creative")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Divider()
-                        
-                        // Top P
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Top P (Nucleus Sampling)")
-                                    .font(.subheadline)
-                                Spacer()
-                                Text(String(format: "%.2f", topP))
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                        )) {
+                            ForEach(ModelIdentifier.allCases.filter { downloadManager.isModelDownloaded($0) }) { model in
+                                Text(model.displayName).tag(model)
                             }
-                            Slider(value: $topP, in: 0.1...1.0, step: 0.05)
-                                .tint(.blue)
-                            Text("Limits token choices by cumulative probability. Lower = more focused")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Divider()
-                        
-                        // Top K
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Top K")
-                                    .font(.subheadline)
-                                Spacer()
-                                Text("\(topK)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            Slider(value: Binding(
-                                get: { Double(topK) },
-                                set: { topK = Int($0) }
-                            ), in: 1...100, step: 1)
-                                .tint(.blue)
-                            Text("Limits token choices to top K options. Lower = more deterministic")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Divider()
-                        
-                        // Max Tokens
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Max Tokens")
-                                    .font(.subheadline)
-                                Spacer()
-                                Text("\(maxTokens)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            Slider(value: Binding(
-                                get: { Double(maxTokens) },
-                                set: { maxTokens = Int($0) }
-                            ), in: 500...4000, step: 100)
-                                .tint(.blue)
-                            Text("Maximum output length. Higher = longer documents, more memory")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
                         }
                     }
-                    .padding(.vertical, 8)
-                    
-                    Button(action: { showResetParamsAlert = true }) {
-                        HStack {
-                            Image(systemName: "arrow.counterclockwise")
-                            Text("Reset to Defaults")
-                        }
-                        .foregroundColor(.blue)
+                    ForEach(ModelIdentifier.allCases) { model in
+                        modelRow(model)
                     }
                 } header: {
-                    Text("LLM Parameters")
+                    Text("AI Model")
                 } footer: {
-                    Text("Advanced settings for AI model behavior. Temperature, Top P and Top K apply to refinement; transcription always uses greedy decoding, so the same photo gives the same LaTeX.")
+                    Text("Models are downloaded once and stay on this device.")
                 }
-                
-                // Storage Section
-                Section {
+
+                Section("Storage") {
                     let stats = storageManager.getStatistics()
-                    
-                    HStack {
-                        Text("Total Generations")
-                        Spacer()
-                        Text("\(stats.totalGenerations)")
-                            .foregroundColor(.secondary)
+                    LabeledContent("Documents", value: "\(stats.totalGenerations)")
+                    LabeledContent("Images", value: "\(stats.totalImages)")
+                    LabeledContent("Favorites", value: "\(stats.totalFavorites)")
+                    LabeledContent("Space Used", value: stats.formattedStorage)
+                    Button("Clear All Data", role: .destructive) {
+                        showClearDataAlert = true
                     }
-                    
-                    HStack {
-                        Text("Total Images")
-                        Spacer()
-                        Text("\(stats.totalImages)")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack {
-                        Text("Favorites")
-                        Spacer()
-                        Text("\(stats.totalFavorites)")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack {
-                        Text("Storage Used")
-                        Spacer()
-                        Text(stats.formattedStorage)
-                            .foregroundColor(.secondary)
-                    }
-                } header: {
-                    Text("Storage")
                 }
-                
-                // AI Model Management Section
+
                 Section {
-                    // Model Selector Dropdown
-                    Picker("Current Model", selection: Binding(
-                        get: { llmService.selectedModel },
-                        set: { newModel in
-                            Task {
-                                await llmService.switchModel(to: newModel)
-                            }
-                        }
-                    )) {
-                        ForEach(ModelIdentifier.allCases.filter { downloadManager.isModelDownloaded($0) }) { model in
-                            Text(model.displayName).tag(model)
+                    LabeledContent("Version", value: appVersion)
+                    Button("Show Welcome Screen") {
+                        withAnimation {
+                            appState.restartOnboarding()
                         }
                     }
-                    
-                    // Downloaded Models List
-                    ForEach([ModelIdentifier.gemma2B, ModelIdentifier.gemma4B], id: \.self) { model in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(model.displayName)
-                                    .font(.subheadline)
-                                
-                                if downloadManager.isModelDownloaded(model) {
-                                    if let size = downloadManager.modelSize(model) {
-                                        Text("\(String(format: "%.1f", size)) MB")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                } else {
-                                    Text("Not downloaded")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            
-                            Spacer()
-                            
-                            if downloadManager.isModelDownloaded(model) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                            } else {
-                                Button("Download") {
-                                    Task {
-                                        do {
-                                            try await downloadManager.downloadModel(model)
-                                        } catch {
-                                            print("Failed to download model: \(error)")
-                                        }
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                    }
-                } header: {
-                    Text("AI Models")
-                } footer: {
-                    Text("Download AI models for on-device processing. Models are stored locally and never uploaded.")
-                }
-                
-                // Data Management Section
-                Section {
-                    Button(role: .destructive, action: { showClearDataAlert = true }) {
-                        HStack {
-                            Image(systemName: "trash")
-                            Text("Clear All Data")
-                        }
-                    }
-                } header: {
-                    Text("Data Management")
-                } footer: {
-                    Text("This will permanently delete all saved generations and cannot be undone.")
-                }
-                
-                // Help Section
-                Section {
-                    Button(action: {
-                        dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation {
-                                appState.restartOnboarding()
-                            }
-                        }
-                    }) {
-                        HStack {
-                            Image(systemName: "book.circle")
-                                .foregroundColor(.blue)
-                            Text("View Onboarding Tutorial")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Help")
-                } footer: {
-                    Text("Learn about the app's features and how to use it effectively.")
-                }
-                
-                // About Section
-                Section {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text("1.0.0")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Link(destination: URL(string: "https://github.com/youneslaaroussi/Pic2PDF")!) {
-                        HStack {
-                            Image(systemName: "link")
-                            Text("GitHub Repository")
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                        }
-                    }
-                    
-                    Link(destination: URL(string: "https://github.com/youneslaaroussi/Pic2PDF/blob/main/PRIVACY.md")!) {
-                        HStack {
-                            Image(systemName: "hand.raised.fill")
-                            Text("Privacy Policy")
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                        }
-                    }
+                    Link("GitHub Repository", destination: URL(string: "https://github.com/youneslaaroussi/Pic2PDF")!)
+                    Link("Privacy Policy", destination: URL(string: "https://github.com/youneslaaroussi/Pic2PDF/blob/main/PRIVACY.md")!)
                 } header: {
                     Text("About")
                 } footer: {
-                    Text("Built for Arm AI Developer Challenge 2025 - Showcasing efficient on-device AI processing with fully local PDF generation.")
+                    Text("Built for the Arm AI Developer Challenge 2025. All processing happens on this device.")
                 }
             }
             .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.large)
-            // Removed Done button since Settings is now a tab
-            .alert("Clear All Data", isPresented: $showClearDataAlert) {
-                Button("Cancel", role: .cancel) {}
+            .alert("Clear All Data?", isPresented: $showClearDataAlert) {
                 Button("Delete All", role: .destructive) {
                     clearAllData()
                 }
-            } message: {
-                Text("Are you sure you want to delete all saved generations? This action cannot be undone.")
-            }
-            .alert("Reset LLM Parameters", isPresented: $showResetParamsAlert) {
                 Button("Cancel", role: .cancel) {}
-                Button("Reset") {
-                    resetLLMParameters()
-                }
             } message: {
-                Text("Reset all LLM parameters to their default values?")
+                Text("This deletes all saved documents and can't be undone.")
             }
         }
     }
-    
+
+    private var sme2Footer: String {
+        if !SME2Support.isSupported {
+            return "Not supported on this device (needs A18 / M4 or newer)."
+        }
+        if SME2Support.needsRestart {
+            return "Restart Img2Latex to apply."
+        }
+        return "Runs the AI model on the CPU's SME2 matrix units. Turn off to use NEON."
+    }
+
+    private var appVersion: String {
+        return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    @ViewBuilder
+    private func modelRow(_ model: ModelIdentifier) -> some View {
+        if downloadManager.isModelDownloaded(model) {
+            LabeledContent(model.displayName, value: downloadedSize(model))
+        } else if let progress = downloadProgress(for: model) {
+            ProgressView(value: progress) {
+                Text(model.displayName)
+            } currentValueLabel: {
+                Text(progress, format: .percent.precision(.fractionLength(0)))
+            }
+        } else {
+            LabeledContent(model.displayName) {
+                Button("Download") {
+                    download(model)
+                }
+                .disabled(downloadManager.downloadStatus.isInProgress)
+            }
+        }
+    }
+
+    private func downloadedSize(_ model: ModelIdentifier) -> String {
+        guard let sizeMB = downloadManager.modelSize(model) else { return "Downloaded" }
+        return String(format: "%.1f GB", sizeMB / 1024)
+    }
+
+    private func downloadProgress(for model: ModelIdentifier) -> Double? {
+        guard downloadingModel == model, case .downloading(let progress, _, _) = downloadManager.downloadStatus else {
+            return nil
+        }
+        return progress
+    }
+
+    private func download(_ model: ModelIdentifier) {
+        downloadingModel = model
+        Task {
+            do {
+                try await downloadManager.downloadModel(model)
+                await llmService.loadModelIfNeeded(model)
+            } catch {
+                print("[Settings] Failed to download model: \(error)")
+            }
+            downloadingModel = nil
+        }
+    }
+
     private func clearAllData() {
         do {
             try storageManager.clearAllData()
@@ -382,7 +205,7 @@ struct SettingsView: View {
             print("[Settings] ERROR: Failed to clear data: \(error)")
         }
     }
-    
+
     private func resetLLMParameters() {
         temperature = 0.7
         topP = 0.9
@@ -394,4 +217,3 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
 }
-
