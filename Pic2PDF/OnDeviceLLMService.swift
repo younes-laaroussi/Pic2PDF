@@ -42,6 +42,9 @@ struct OnDeviceModel {
     let identifier: ModelIdentifier
 
     init(modelIdentifier: ModelIdentifier, maxTokens: Int = 1000) throws {
+        // Normally already done in Pic2PDFApp.init(); must happen before LlmInference is created.
+        SME2Support.configureBeforeModelLoad()
+
         self.identifier = modelIdentifier
         let fileManager = FileManager.default
         let cacheDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -112,6 +115,7 @@ struct OnDeviceModel {
         options.maxImages = 5 // Support up to 5 images for document conversion
 
         inference = try LlmInference(options: options)
+        SME2Support.recordActiveModeAfterLoad()
     }
 
     private static func extractVisionModels(fromArchive archiveURL: URL, toDirectory destinationURL: URL, filesToExtract: [String]) throws {
@@ -204,6 +208,8 @@ final class OnDeviceLLMService: ObservableObject {
     @Published var isInitialized = false
     @Published var initializationError: String?
     @Published var modelInitializationTime: Double = 0.0
+    /// SME2 or NEON, as chosen by XNNPACK at model load. nil until the model has loaded.
+    @Published var accelerationMode: SME2Support.Mode?
 
     // MARK: - Performance Tracking
     @Published var generationHistory: [GenerationMetrics] = []
@@ -386,6 +392,7 @@ final class OnDeviceLLMService: ObservableObject {
             let endTime = Date()
             modelInitializationTime = endTime.timeIntervalSince(startTime)
 
+            accelerationMode = SME2Support.activeMode
             isInitialized = true
             initializationError = nil
 
