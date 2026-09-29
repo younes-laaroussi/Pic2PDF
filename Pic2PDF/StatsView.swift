@@ -257,6 +257,8 @@ struct StatsView: View {
                             InfoRow(label: "iOS Version", value: UIDevice.current.systemVersion)
                             InfoRow(label: "Device", value: UIDevice.current.model)
                             InfoRow(label: "Architecture", value: "ARM64")
+                            InfoRow(label: "Acceleration", value: llmService.accelerationMode?.displayName ?? (llmService.isInitialized ? "Unknown" : "Not loaded"))
+                            InfoRow(label: "CPU supports SME2", value: SME2Support.isSupported ? "Yes" : "No")
                         }
                     }
 

@@ -120,6 +120,15 @@ struct MainGenerationView: View {
                 // Note: PDF compilation is now done locally using WebView + LaTeX.js
                 // AI Model loading is handled by overlay in ContentView
                 
+                // Acceleration indicator (SME2 / NEON), once the model has loaded
+                if onDeviceLLMService.isInitialized, let mode = onDeviceLLMService.accelerationMode {
+                    HStack {
+                        Spacer()
+                        AccelerationBadge(mode: mode)
+                    }
+                    .padding(.horizontal)
+                }
+                
                 if selectedImages.isEmpty {
                     // Empty state
                     VStack(spacing: 16) {
@@ -406,6 +415,23 @@ struct Badge: View {
             .padding(4)
             .background(Color.red)
             .clipShape(Circle())
+    }
+}
+
+/// Capsule badge showing which CPU path the model runs on: SME2 or NEON.
+struct AccelerationBadge: View {
+    let mode: SME2Support.Mode
+    
+    var body: some View {
+        Text(mode.displayName)
+            .font(.caption2)
+            .fontWeight(.bold)
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(mode == .sme2 ? Color.accentColor : Color(.systemGray))
+            .clipShape(Capsule())
+            .accessibilityLabel("Acceleration: \(mode.displayName)")
     }
 }
 
