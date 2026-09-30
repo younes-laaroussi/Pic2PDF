@@ -17,6 +17,7 @@ struct LaTeXWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        LaTeXJSAssets.install(in: config)
         config.preferences.javaScriptEnabled = true
         let controller = WKUserContentController()
         controller.add(context.coordinator, name: "jsLog")
@@ -57,7 +58,7 @@ struct LaTeXWebView: UIViewRepresentable {
             print("[LaTeXWebView] First 200 chars of latex: \(String(latex.prefix(200)))")
             
             // STRIP UNSUPPORTED PACKAGES AND COMMANDS
-            let cleanedLatex = stripUnsupportedLaTeX(latex)
+            let cleanedLatex = LaTeXSanitizer.clean(latex)
             print("[LaTeXWebView] After cleaning: \(String(cleanedLatex.prefix(200)))")
             
             // Standard JavaScript string escaping
@@ -75,7 +76,7 @@ struct LaTeXWebView: UIViewRepresentable {
                 <style>
                   body { margin: 12px; background: #fff; }
                 </style>
-                <script src=\"https://cdn.jsdelivr.net/npm/latex.js/dist/latex.js\"></script>
+                <script src=\"\(LaTeXJSAssets.baseURL.absoluteString)latex.js\"></script>
               </head>
               <body>
                 <script>
@@ -86,7 +87,7 @@ struct LaTeXWebView: UIViewRepresentable {
                       latexjs.parse(src, { generator: generator });
                       
                       // Inject styles and scripts using the LaTeX.js base URL
-                      document.head.appendChild(generator.stylesAndScripts("https://cdn.jsdelivr.net/npm/latex.js/dist/"));
+                      document.head.appendChild(generator.stylesAndScripts("\(LaTeXJSAssets.baseURL.absoluteString)"));
                       
                       // Append the generated HTML
                       document.body.appendChild(generator.domFragment());
@@ -103,104 +104,9 @@ struct LaTeXWebView: UIViewRepresentable {
             print(html)
             print("[LaTeXWebView] ========== INJECTED HTML END ==========")
 
-            webView.loadHTMLString(html, baseURL: nil)
+            webView.loadHTMLString(html, baseURL: LaTeXJSAssets.baseURL)
         }
         
-        private func stripUnsupportedLaTeX(_ latex: String) -> String {
-            var cleaned = latex
-            
-            // Remove entire lines with unsupported packages
-            cleaned = cleaned.replacingOccurrences(of: #"\\usepackage\{graphicx\}\n?"#, with: "", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\usepackage\{geometry\}\n?"#, with: "", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\usepackage\{fancyhdr\}\n?"#, with: "", options: .regularExpression)
-            
-            // Remove geometry command with any arguments
-            cleaned = cleaned.replacingOccurrences(of: #"\\geometry\{[^\}]+\}\n?"#, with: "", options: .regularExpression)
-            
-            // Remove ALL fancy header related lines (line by line)
-            cleaned = cleaned.replacingOccurrences(of: #"\\pagestyle\{fancy\}\n?"#, with: "", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\fancyhf\{\}\n?"#, with: "", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\renewcommand\{[^\}]+\}\{[^\}]+\}\n?"#, with: "", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\fancyhead\[[^\]]+\]\{[^\n]+\}\n?"#, with: "", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\fancyfoot\[[^\]]+\]\{[^\n]+\}\n?"#, with: "", options: .regularExpression)
-            
-            // Remove includegraphics (replace with placeholder text)
-            cleaned = cleaned.replacingOccurrences(of: #"\\includegraphics(\[[^\]]*\])?\{[^\}]+\}"#, with: "[Image]", options: .regularExpression)
-            
-            // Remove tabular environments (replace with plain text)
-            cleaned = cleaned.replacingOccurrences(of: #"\\begin\{tabular\}[^\n]*\n([^\\]*)(\\end\{tabular\})"#, with: "[Table data removed - not supported]", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\begin\{table\}[^\n]*\n([^\\]*)(\\end\{table\})"#, with: "[Table removed - not supported]", options: .regularExpression)
-            
-            // Remove tikz environments (replace with plain text)
-            cleaned = cleaned.replacingOccurrences(of: #"\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}"#, with: "[Figure removed - not supported]", options: .regularExpression)
-            cleaned = cleaned.replacingOccurrences(of: #"\\usepackage\{tikz\}\n?"#, with: "", options: .regularExpression)
-            
-            // ===== REMOVE UNSUPPORTED MATH ENVIRONMENTS (equation, align, etc.) =====
-            // Replace equation environment with \[ \] display math
-            cleaned = replaceEnvironment(in: cleaned, name: "equation", removeAlignMarkers: false)
-            
-            // Replace align environment with \[ \] display math (remove & markers)
-            cleaned = replaceEnvironment(in: cleaned, name: "align", removeAlignMarkers: true)
-            
-            // Replace gather environment with \[ \] display math
-            cleaned = replaceEnvironment(in: cleaned, name: "gather", removeAlignMarkers: false)
-            
-            // Replace multline environment with \[ \] display math
-            cleaned = replaceEnvironment(in: cleaned, name: "multline", removeAlignMarkers: false)
-            
-            // Remove other specific unsupported environments (but preserve document, itemize, enumerate)
-            let unsupportedEnvs = ["figure", "table", "tabular", "tikzpicture", "minipage", "verbatim", "lstlisting"]
-            for env in unsupportedEnvs {
-                cleaned = cleaned.replacingOccurrences(
-                    of: #"\\begin\{\#(env)\*?\}[\s\S]*?\\end\{\#(env)\*?\}"#,
-                    with: "[Environment '\(env)' removed - not supported]",
-                    options: .regularExpression
-                )
-            }
-            
-            // Remove multiple blank lines
-            cleaned = cleaned.replacingOccurrences(of: #"\n\n\n+"#, with: "\n\n", options: .regularExpression)
-            
-            return cleaned
-        }
-        
-        private func replaceEnvironment(in text: String, name: String, removeAlignMarkers: Bool) -> String {
-            let pattern = #"\\begin\{\#(name)\*?\}[\s\S]*?\\end\{\#(name)\*?\}"#
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-                return text
-            }
-            
-            let nsText = text as NSString
-            let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
-            
-            var result = text
-            // Process matches in reverse to maintain correct indices
-            for match in matches.reversed() {
-                let matchRange = match.range
-                let matchText = nsText.substring(with: matchRange)
-                
-                // Extract content between \begin and \end
-                var content = matchText
-                    .replacingOccurrences(of: #"\\begin\{\#(name)\*?\}\s*"#, with: "", options: .regularExpression)
-                    .replacingOccurrences(of: #"\s*\\end\{\#(name)\*?\}"#, with: "", options: .regularExpression)
-                
-                if removeAlignMarkers {
-                    content = content.replacingOccurrences(of: "&", with: "")
-                }
-                
-                content = content
-                    .replacingOccurrences(of: #"\\\\"#, with: "\n", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                let replacement = "\\[\n\(content)\n\\]"
-                
-                if let range = Range(matchRange, in: result) {
-                    result = result.replacingCharacters(in: range, with: replacement)
-                }
-            }
-            
-            return result
-        }
     }
 }
 
