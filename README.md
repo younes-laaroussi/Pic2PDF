@@ -41,7 +41,7 @@ Img2Latex converts handwritten math, lecture notes, and problem sets into profes
 Img2Latex demonstrates ARM-optimized on-device AI for multimodal document understanding:
 
 **AI/ML Stack**:
-- **Gemma 3N (2B/4B)** [[1]](#references): INT4 quantized vision-language models running on device: the language model on the ARM CPU, the vision encoder's input stage on the GPU via Metal
+- **Gemma 3N (2B/4B)** [[1]](#references): INT4 quantized vision-language models running on device: the language model on the ARM CPU, part of the vision pipeline on the GPU via Metal
 - **MediaPipe Tasks GenAI 0.10.24** [[2]](#references): Inference runtime with integrated ARM backends (KleidiAI/XNNPACK)
 - **SME2 by Default**: KleidiAI's Scalable Matrix Extension 2 kernels in XNNPACK are switched on at launch on A18/M4-class devices (MediaPipe ships them disabled), with a Settings toggle and an in-app benchmark; older devices use NEON ([details](#sme2-results))
 - **Vision Pipeline**: Extracts TFLite vision encoder/adapter from `.task` files; processes up to 5 images per inference
@@ -50,7 +50,7 @@ Img2Latex demonstrates ARM-optimized on-device AI for multimodal document unders
 - **Accelerate Framework** [[3]](#references): vImage SIMD operations for parallel image downscaling (ARM NEON)
 - **INT4 Quantization**: 4-bit weights optimized for ARM integer pipelines 
 - **Thermal Management**: ProcessInfo monitoring with adaptive performance tuning
-- **CPU language model**: LLM prefill and decode run on KleidiAI [[4]](#references) matrix kernels: SME2 on A18/M4-class devices, NEON on older ones. MediaPipe runs the vision encoder's image-to-tensor step on Metal (see [Testing in the simulator](#testing-in-the-simulator))
+- **CPU language model**: LLM prefill and decode run on KleidiAI [[4]](#references) matrix kernels: SME2 on A18/M4-class devices, NEON on older ones. MediaPipe runs part of the vision pipeline on the GPU through Metal (see [Testing in the simulator](#testing-in-the-simulator))
 
 **Architecture**: SwiftUI app with MediaPipe inference service, client-side PDF rendering (WKWebView + latex.js), and SwiftData persistence
 
@@ -195,7 +195,7 @@ What was measured (2026-09-30, MediaPipe Tasks GenAI 0.10.24, iPhone 17 Pro simu
 | `preferred_backend = CPU` through the C API | Still "Black" |
 | Stack sample during image encoding | `LiteRTVisionExecutor::Encode` → `ml_drift::metal::BHWCBufferToTensorConverter::Encode` → the simulator's Metal layer (`MTLSerializer`, `MTLSimDriver`) |
 
-So the pixels are correct until MediaPipe copies them into the vision encoder's input tensor, and that copy runs on Metal even when the language model runs on the CPU. Under the simulator's Metal translation layer it produces zeros. MediaPipe exposes no setting that moves this step off Metal. Test image transcription on a device.
+So the pixels are correct until MediaPipe hands them to its vision pipeline, which runs partly on Metal even when the language model runs on the CPU. An Instruments trace on the iPhone shows the same structure: MediaPipe creates two vision runners, `LlmVisionInferenceRunnerGpu` (ML Drift on Metal, running on the real Apple GPU driver, `AGX`) and `LlmVisionInferenceRunnerXnnpack` (CPU). The code path is the same on both; only the GPU driver underneath differs, and under the simulator's Metal translation layer the result is an all-zero image. MediaPipe exposes no setting that moves this step off Metal. Test image transcription on a device.
 
 ## Image-to-PDF Pipeline
 

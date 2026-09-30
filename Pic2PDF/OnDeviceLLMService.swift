@@ -865,20 +865,28 @@ final class OnDeviceLLMService: ObservableObject {
 
     private func extractLaTeXFromResponse(_ response: String) -> String {
         // Remove markdown code blocks if present
-        var latex = response
+        let latex = response
             .replacingOccurrences(of: "```latex", with: "")
             .replacingOccurrences(of: "```", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Ensure it starts with \documentclass if it doesn't already
-        if !latex.hasPrefix("\\documentclass") {
-            // Try to find LaTeX content within the response
-            if let latexStart = latex.firstIndex(of: "\\") {
-                latex = String(latex[latexStart...])
-            }
+        // A full document: drop anything the model wrote before it.
+        if let start = latex.range(of: "\\documentclass") {
+            return String(latex[start.lowerBound...])
         }
 
-        return latex
+        // Bare content (e.g. "$x^2 - 5x + 6 = 0$" lines): keep all of it and wrap it in the document the
+        // prompt asks for. Cutting at the first backslash here used to delete every line before it.
+        return """
+        \\documentclass{article}
+        \\usepackage{amsmath}
+        \\usepackage{amssymb}
+        \\begin{document}
+
+        \(latex)
+
+        \\end{document}
+        """
     }
 
 }
