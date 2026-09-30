@@ -25,9 +25,6 @@ class ProcessMetrics {
             return 0.0
         }
     }
-    static func currentCPUUsage() -> Double {
-        return 0
-    }
 
     /// Returns system uptime in seconds
     static func systemUptime() -> TimeInterval {

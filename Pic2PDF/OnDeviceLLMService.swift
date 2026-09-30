@@ -42,6 +42,9 @@ struct OnDeviceModel {
     let identifier: ModelIdentifier
 
     init(modelIdentifier: ModelIdentifier, maxTokens: Int = 1000) throws {
+        // Normally already done in Pic2PDFApp.init(); must happen before LlmInference is created.
+        SME2Support.configureBeforeModelLoad()
+
         self.identifier = modelIdentifier
         let fileManager = FileManager.default
         let cacheDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -111,7 +114,39 @@ struct OnDeviceModel {
         options.visionAdapterPath = extractedVisionAdapterPath.path
         options.maxImages = 5 // Support up to 5 images for document conversion
 
+        // XNNPACK writes packed weights to <modelPath>.xnnpack_cache, but the cache is not keyed by ISA:
+        // loading a NEON-built cache with SME2 on aborts the process. Rebuild it when the mode changes.
+        let launchMode = SME2Support.requestedModeAtLaunch
+        let weightCacheURL = URL(fileURLWithPath: modelCopyPath.path + ".xnnpack_cache")
+        let weightCacheModeKey = "xnnCacheBuiltMode_\(modelIdentifier.fileName)"
+        try OnDeviceModel.invalidateWeightCacheIfNeeded(at: weightCacheURL, builtModeKey: weightCacheModeKey, launchMode: launchMode)
+
         inference = try LlmInference(options: options)
+        UserDefaults.standard.set(launchMode.rawValue, forKey: weightCacheModeKey)
+        SME2Support.recordActiveModeAfterLoad()
+    }
+
+    /// Deletes XNNPACK's weight cache if it was built in a different SME2 mode, or by an older
+    /// app version (no marker; those only ran NEON). Costs a one-time rebuild (~8 s) on this load.
+    private static func invalidateWeightCacheIfNeeded(at cacheURL: URL, builtModeKey: String, launchMode: SME2Support.Mode) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: cacheURL.path) else { return }
+
+        let builtMode = UserDefaults.standard.string(forKey: builtModeKey)
+        guard builtMode != launchMode.rawValue else { return }
+
+        let sizeMB = Double((try? cacheURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) / (1024 * 1024)
+        do {
+            try fileManager.removeItem(at: cacheURL)
+            NSLog("[SME2] Deleted XNNPACK weight cache \(cacheURL.lastPathComponent) (\(String(format: "%.0f", sizeMB)) MB), built for \(builtMode ?? "unknown/older app"), now \(launchMode.rawValue)")
+        } catch {
+            NSLog("[SME2] Failed to delete XNNPACK weight cache \(cacheURL.lastPathComponent): \(error)")
+            // A cache from the other ISA would abort the process on load; fail with an error instead.
+            if (builtMode ?? SME2Support.Mode.neon.rawValue) != launchMode.rawValue {
+                let errorMessage = "Could not reset the model cache for the new acceleration mode. Please restart the app."
+                throw NSError(domain: "ModelSetupError", code: 1002, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+            }
+        }
     }
 
     private static func extractVisionModels(fromArchive archiveURL: URL, toDirectory destinationURL: URL, filesToExtract: [String]) throws {
@@ -145,6 +180,7 @@ final class AIChatSession {
          topK: Int = 40,
          topP: Float = 0.9,
          temperature: Float = 0.7,
+         randomSeed: Int? = nil,
          enableVisionModality: Bool = true) throws {
         self.model = model
 
@@ -152,6 +188,9 @@ final class AIChatSession {
         options.topk = topK
         options.topp = topP
         options.temperature = temperature
+        if let randomSeed = randomSeed {
+            options.randomSeed = randomSeed
+        }
         options.enableVisionModality = enableVisionModality
         
         NSLog("[AIChatSession] Creating session with visionModality=\(enableVisionModality), topK=\(topK), temp=\(temperature)")
@@ -204,6 +243,8 @@ final class OnDeviceLLMService: ObservableObject {
     @Published var isInitialized = false
     @Published var initializationError: String?
     @Published var modelInitializationTime: Double = 0.0
+    /// SME2 or NEON, as chosen by XNNPACK at model load. nil until the model has loaded.
+    @Published var accelerationMode: SME2Support.Mode?
 
     // MARK: - Performance Tracking
     @Published var generationHistory: [GenerationMetrics] = []
@@ -217,13 +258,16 @@ final class OnDeviceLLMService: ObservableObject {
     @Published var currentMemoryUsage: Double = 0.0
     @Published var batteryLevel: Int = 100
     @Published var thermalState: ProcessInfo.ThermalState = .nominal
-    @Published var deviceTemperature: Double = 0.0
-    @Published var cpuUsage: Double = 0.0
     @Published var currentTokensPerSecond: Double = 0.0
-    @Published var realtimeMemoryHistory: [Double] = [] // Real-time memory tracking during generation
     
     // MARK: - Live Generation Streaming
     @Published var streamingLaTeX: String = ""
+
+    // MARK: - Busy State
+    /// True while generateLaTeX or refineLaTeX is running.
+    @Published private(set) var isGenerating = false
+    /// True while the SME2 benchmark is running. Generation is refused meanwhile (one model, one session at a time).
+    @Published private(set) var isBenchmarking = false
 
     // MARK: - Public Model Access
     /// Public access to current model information for UI display
@@ -313,26 +357,6 @@ final class OnDeviceLLMService: ObservableObject {
         if currentMemoryUsage > peakMemoryUsage {
             peakMemoryUsage = currentMemoryUsage
         }
-        
-        // Add to real-time history if we have streaming content (generation in progress)
-        if !streamingLaTeX.isEmpty {
-            realtimeMemoryHistory.append(currentMemoryUsage)
-            // Keep only last 30 data points for performance
-            if realtimeMemoryHistory.count > 30 {
-                realtimeMemoryHistory.removeFirst()
-            }
-        }
-
-        // CPU usage (simulated for demo)
-        cpuUsage = ProcessMetrics.currentCPUUsage()
-
-        // Temperature simulation (IOKit not available in iOS apps)
-        // In production, would use private APIs or device sensors
-        let baseTemp: Double = 38.0 // Base temperature for iOS device
-        let thermalAdjustment: Double = thermalState == .nominal ? 0 :
-                                       thermalState == .fair ? 3 :
-                                       thermalState == .serious ? 8 : 12
-        deviceTemperature = baseTemp + Double.random(in: -2...2) + thermalAdjustment
     }
 
     private func recordGenerationMetrics(inputImages: Int, outputTokens: Int, generationTime: TimeInterval, batteryBefore: Int) {
@@ -386,6 +410,7 @@ final class OnDeviceLLMService: ObservableObject {
             let endTime = Date()
             modelInitializationTime = endTime.timeIntervalSince(startTime)
 
+            accelerationMode = SME2Support.activeMode
             isInitialized = true
             initializationError = nil
 
@@ -402,7 +427,15 @@ final class OnDeviceLLMService: ObservableObject {
     func isReady() -> Bool {
         return isInitialized && currentSession != nil
     }
-    
+
+    /// Loads `modelIdentifier` if no model is loaded yet, e.g. right after it was downloaded
+    /// or when the user retries after a failed load. Does nothing once a model is loaded.
+    func loadModelIfNeeded(_ modelIdentifier: ModelIdentifier) async {
+        guard !isInitialized else { return }
+        preferredModel = modelIdentifier
+        await initializeModel()
+    }
+
     /// Switch to a different model
     /// - Parameter modelIdentifier: The model to switch to
     func switchModel(to modelIdentifier: ModelIdentifier) async {
@@ -440,6 +473,11 @@ final class OnDeviceLLMService: ObservableObject {
         guard isReady() else {
             throw OnDeviceLLMError.notInitialized
         }
+        guard !isBenchmarking else {
+            throw OnDeviceLLMError.generationFailed("The SME2 benchmark is running. Try again when it finishes.")
+        }
+        isGenerating = true
+        defer { isGenerating = false }
 
         let startTime = Date()
         let batteryBefore = batteryLevel
@@ -450,29 +488,26 @@ final class OnDeviceLLMService: ObservableObject {
             status.progress = 0.1
             streamingLaTeX = "" // Clear previous stream
             currentTokensPerSecond = 0.0 // Reset real-time metric
-            realtimeMemoryHistory = [] // Clear real-time memory history
         }
 
-        // Create a new session for this generation task using user settings
-        // Performance mode can adjust parameters slightly for speed
-        let temp = isPerformanceModeEnabled ? min(userTemperature, 0.6) : userTemperature
-        let tP = isPerformanceModeEnabled ? min(userTopP, 0.95) : userTopP
-        let tK = isPerformanceModeEnabled ? max(userTopK, 60) : userTopK
-        
+        // Create a new session for this generation task.
+        // Transcription uses greedy decoding (topK = 1) so the same photo always gives the same LaTeX;
+        // temperature and topP have no effect then. The user's sampling settings apply to refinement only.
         NSLog("[OnDeviceLLM] Creating vision-enabled session (perfMode=\(isPerformanceModeEnabled))")
-        NSLog("[OnDeviceLLM] Parameters: temp=\(temp), topP=\(tP), topK=\(tK)")
+        NSLog("[OnDeviceLLM] Parameters: greedy (topK=1)")
         let session = try AIChatSession(
             model: currentModel!,
-            topK: tK,
-            topP: tP,
-            temperature: temp,
+            topK: 1,
+            topP: 1.0,
+            temperature: 1.0,
             enableVisionModality: true
         )
         NSLog("[OnDeviceLLM] Session created with vision modality enabled")
 
         // Downscale images in parallel (Accelerate) for lower memory and faster vision path
         os_signpost(.begin, log: signpostLog, name: "PreprocessImages")
-        let maxDimension = isPerformanceModeEnabled ? 1024 : 1536
+        // 768 is the vision encoder's largest native input size; larger images only cost time and memory.
+        let maxDimension = isPerformanceModeEnabled ? 512 : 768
         let processedCGImages: [CGImage] = await withTaskGroup(of: CGImage?.self) { group in
             for img in images {
                 group.addTask(priority: .userInitiated) {
@@ -578,6 +613,11 @@ final class OnDeviceLLMService: ObservableObject {
         guard isReady() else {
             throw OnDeviceLLMError.notInitialized
         }
+        guard !isBenchmarking else {
+            throw OnDeviceLLMError.generationFailed("The SME2 benchmark is running. Try again when it finishes.")
+        }
+        isGenerating = true
+        defer { isGenerating = false }
 
         let startTime = Date()
         let batteryBefore = batteryLevel
@@ -587,7 +627,6 @@ final class OnDeviceLLMService: ObservableObject {
             status.progress = 0.1
             streamingLaTeX = "" // Clear previous stream
             currentTokensPerSecond = 0.0 // Reset real-time metric
-            realtimeMemoryHistory = [] // Clear real-time memory history
         }
 
         // Create a new session for refinement (text-only, no images) using user settings
@@ -666,6 +705,87 @@ final class OnDeviceLLMService: ObservableObject {
         )
 
         return latexResult
+    }
+
+    // MARK: - SME2 Benchmark
+
+    /// Runs one warm-up and `measuredRuns` measured generations of `image` on the already-loaded model
+    /// (no second LlmInference, which would double memory). Uses the normal generation prompt with fixed
+    /// greedy settings so SME2 and NEON launches are comparable. Runs are not added to the generation history.
+    func runSME2Benchmark(image: CGImage,
+                          measuredRuns: Int,
+                          progress: (String) -> Void) async throws -> [SME2BenchmarkRun] {
+        guard isReady(), let model = currentModel else {
+            throw OnDeviceLLMError.notInitialized
+        }
+        guard !isGenerating, !isBenchmarking else {
+            throw OnDeviceLLMError.generationFailed("Another generation is running. Try again when it finishes.")
+        }
+        isBenchmarking = true
+        defer { isBenchmarking = false }
+
+        // Same downscale as generateLaTeX, at a fixed size so Performance Mode doesn't change the input.
+        let input = downscaleCGImageAccelerate(image, maxDimension: SME2Benchmark.imageMaxDimension) ?? image
+        NSLog("[SME2Benchmark] Mode=\(SME2Support.activeMode?.displayName ?? "unknown"), image \(input.width)x\(input.height)")
+
+        var runs: [SME2BenchmarkRun] = []
+        for index in 0...measuredRuns {
+            progress(index == 0 ? "Warm-up run..." : "Run \(index) of \(measuredRuns)...")
+            let run = try await runBenchmarkGeneration(model: model, image: input)
+            NSLog("[SME2Benchmark] \(index == 0 ? "warm-up" : "run \(index)"): ttft=\(run.timeToFirstTokenSeconds)s decode=\(run.decodeTokensPerSecond) tok/s total=\(run.totalSeconds)s tokens=\(run.outputTokens) peak=\(run.peakMemoryMB) MB")
+            if index > 0 {
+                runs.append(run)
+            }
+        }
+        return runs
+    }
+
+    private func runBenchmarkGeneration(model: OnDeviceModel, image: CGImage) async throws -> SME2BenchmarkRun {
+        // Session creation (~3 s) is not part of any timing, as in the research harness.
+        let session = try AIChatSession(
+            model: model,
+            topK: 1,
+            topP: 1,
+            temperature: 1,
+            randomSeed: 0,
+            enableVisionModality: true
+        )
+        let prompt = createLaTeXGenerationPrompt(additionalPrompt: nil)
+
+        let memorySampler = PeakMemorySampler()
+        memorySampler.start()
+        defer { memorySampler.stop() }
+        let thermalBefore = ProcessInfo.processInfo.thermalState
+
+        let imageStart = ProcessInfo.processInfo.systemUptime
+        try session.addImageToQuery(image: image)
+
+        let generateStart = ProcessInfo.processInfo.systemUptime
+        let stream = try await session.generateLaTeX(prompt: prompt)
+        var fullResponse = ""
+        var firstChunkTime: TimeInterval?
+        for try await chunk in stream {
+            if firstChunkTime == nil && !chunk.isEmpty {
+                firstChunkTime = ProcessInfo.processInfo.systemUptime
+            }
+            fullResponse += chunk
+        }
+        let endTime = ProcessInfo.processInfo.systemUptime
+
+        memorySampler.sample()
+        let thermalAfter = ProcessInfo.processInfo.thermalState
+        let outputTokens = (try? session.sizeInTokens(text: fullResponse)) ?? 0
+        let firstChunk = firstChunkTime ?? endTime
+        let decodeSeconds = endTime - firstChunk
+
+        return SME2BenchmarkRun(
+            timeToFirstTokenSeconds: firstChunk - generateStart,
+            decodeTokensPerSecond: outputTokens > 1 && decodeSeconds > 0 ? Double(outputTokens - 1) / decodeSeconds : 0,
+            totalSeconds: endTime - imageStart,
+            outputTokens: outputTokens,
+            peakMemoryMB: memorySampler.peakMB,
+            thermalState: thermalAfter.rawValue > thermalBefore.rawValue ? thermalAfter : thermalBefore
+        )
     }
 
     // MARK: - Private Helper Methods
