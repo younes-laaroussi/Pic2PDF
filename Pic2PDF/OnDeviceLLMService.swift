@@ -508,18 +508,20 @@ final class OnDeviceLLMService: ObservableObject {
         os_signpost(.begin, log: signpostLog, name: "PreprocessImages")
         // 768 is the vision encoder's largest native input size; larger images only cost time and memory.
         let maxDimension = isPerformanceModeEnabled ? 512 : 768
-        let processedCGImages: [CGImage] = await withTaskGroup(of: CGImage?.self) { group in
-            for img in images {
+        let processedCGImages: [CGImage] = await withTaskGroup(of: (Int, CGImage?).self) { group in
+            for (index, img) in images.enumerated() {
                 group.addTask(priority: .userInitiated) {
-                    guard let cg = img.cgImage else { return nil }
-                    return downscaleCGImageAccelerate(cg, maxDimension: maxDimension) ?? cg
+                    // cgImage ignores imageOrientation, so portrait camera photos would reach the model sideways.
+                    guard let cg = uprightCGImage(img) else { return (index, nil) }
+                    return (index, downscaleCGImageAccelerate(cg, maxDimension: maxDimension) ?? cg)
                 }
             }
-            var results: [CGImage] = []
-            while let next = await group.next() {
-                if let img = next { results.append(img) }
+            // Task groups finish in any order; keep the user's page order.
+            var byIndex: [Int: CGImage] = [:]
+            while let (index, img) = await group.next() {
+                if let img { byIndex[index] = img }
             }
-            return results
+            return byIndex.keys.sorted().compactMap { byIndex[$0] }
         }
         os_signpost(.end, log: signpostLog, name: "PreprocessImages")
 
@@ -887,7 +889,20 @@ enum OnDeviceLLMError: LocalizedError {
     }
 }
 
-// MARK: - Global Accelerate Helper (non-main-actor)
+// MARK: - Global Image Helpers (non-main-actor)
+
+/// Returns pixels in display orientation. `UIImage.cgImage` is the raw sensor buffer, which for iPhone
+/// portrait photos is stored sideways with an orientation flag the model never sees.
+nonisolated private func uprightCGImage(_ image: UIImage) -> CGImage? {
+    guard let cg = image.cgImage else { return nil }
+    guard image.imageOrientation != .up else { return cg }
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    let size = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+    let renderer = UIGraphicsImageRenderer(size: size, format: format)
+    return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }.cgImage ?? cg
+}
+
 private func downscaleCGImageAccelerate(_ src: CGImage, maxDimension: Int) -> CGImage? {
     let width = src.width
     let height = src.height
@@ -898,10 +913,11 @@ private func downscaleCGImageAccelerate(_ src: CGImage, maxDimension: Int) -> CG
     let dstW = Int(Double(width) * scale)
     let dstH = Int(Double(height) * scale)
 
+    let colorSpace = CGColorSpaceCreateDeviceRGB()  // must outlive `format`, which holds it unretained
     var format = vImage_CGImageFormat(
         bitsPerComponent: 8,
         bitsPerPixel: 32,
-        colorSpace: Unmanaged.passUnretained(CGColorSpaceCreateDeviceRGB()),
+        colorSpace: Unmanaged.passUnretained(colorSpace),
         bitmapInfo: CGBitmapInfo.byteOrder32Little.union(.init(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)),
         version: 0,
         decode: nil,
@@ -910,14 +926,17 @@ private func downscaleCGImageAccelerate(_ src: CGImage, maxDimension: Int) -> CG
 
     var srcBuf = vImage_Buffer()
     var dstBuf = vImage_Buffer()
-    defer {
-        free(srcBuf.data)
-        free(dstBuf.data)
-    }
+    defer { free(srcBuf.data) }
 
     guard vImageBuffer_InitWithCGImage(&srcBuf, &format, nil, src, vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return nil }
     guard vImageBuffer_Init(&dstBuf, vImagePixelCount(dstH), vImagePixelCount(dstW), format.bitsPerPixel, vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return nil }
 
     vImageScale_ARGB8888(&srcBuf, &dstBuf, nil, vImage_Flags(kvImageHighQualityResampling))
-    return vImageCreateCGImageFromBuffer(&dstBuf, &format, nil, nil, vImage_Flags(kvImageNoAllocate), nil)?.takeRetainedValue()
+    // With kvImageNoAllocate the CGImage takes ownership of dstBuf.data and free()s it when released
+    // (vImage_Utilities.h). Freeing it here as well left the model reading freed pixels.
+    guard let image = vImageCreateCGImageFromBuffer(&dstBuf, &format, nil, nil, vImage_Flags(kvImageNoAllocate), nil)?.takeRetainedValue() else {
+        free(dstBuf.data)
+        return nil
+    }
+    return image
 }
