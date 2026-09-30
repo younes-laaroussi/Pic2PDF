@@ -41,7 +41,7 @@ Img2Latex converts handwritten math, lecture notes, and problem sets into profes
 Img2Latex demonstrates ARM-optimized on-device AI for multimodal document understanding:
 
 **AI/ML Stack**:
-- **Gemma 3N (2B/4B)** [[1]](#references): INT4 quantized vision-language models running entirely on ARM CPU
+- **Gemma 3N (2B/4B)** [[1]](#references): INT4 quantized vision-language models running on device: the language model on the ARM CPU, the vision encoder's input stage on the GPU via Metal
 - **MediaPipe Tasks GenAI 0.10.24** [[2]](#references): Inference runtime with integrated ARM backends (KleidiAI/XNNPACK)
 - **SME2 by Default**: KleidiAI's Scalable Matrix Extension 2 kernels in XNNPACK are switched on at launch on A18/M4-class devices (MediaPipe ships them disabled), with a Settings toggle and an in-app benchmark; older devices use NEON ([details](#sme2-results))
 - **Vision Pipeline**: Extracts TFLite vision encoder/adapter from `.task` files; processes up to 5 images per inference
@@ -50,7 +50,7 @@ Img2Latex demonstrates ARM-optimized on-device AI for multimodal document unders
 - **Accelerate Framework** [[3]](#references): vImage SIMD operations for parallel image downscaling (ARM NEON)
 - **INT4 Quantization**: 4-bit weights optimized for ARM integer pipelines 
 - **Thermal Management**: ProcessInfo monitoring with adaptive performance tuning
-- **Zero GPU Dependency**: Pure CPU inference on KleidiAI [[4]](#references) matrix kernels: SME2 on A18/M4-class devices, NEON on older ones
+- **CPU language model**: LLM prefill and decode run on KleidiAI [[4]](#references) matrix kernels: SME2 on A18/M4-class devices, NEON on older ones. MediaPipe runs the vision encoder's image-to-tensor step on Metal (see [Testing in the simulator](#testing-in-the-simulator))
 
 **Architecture**: SwiftUI app with MediaPipe inference service, client-side PDF rendering (WKWebView + latex.js), and SwiftData persistence
 
@@ -179,6 +179,23 @@ Measured on an iPhone 16 Pro Max (A18 Pro, iOS 27.0) with Gemma 3N E2B, 18 NEON 
 To compare on your own phone: **Analytics → Run SME2 benchmark**, then turn SME2 off in Settings, restart, and run it again. The benchmark uses a bundled sample image, the normal prompt and greedy decoding (1 warm-up + 3 measured runs); results stay on the device.
 
 ---
+
+
+## Testing in the simulator
+
+Everything except image understanding works in the iOS Simulator on an Apple-silicon Mac (whose CPU also has SME2): model loading, the SME2 / NEON switch, the weight-cache reset, the Settings toggle, and the UI. **Image transcription does not.** In the simulator the model receives an all-black image, so it answers from the prompt alone.
+
+What was measured (2026-09-30, MediaPipe Tasks GenAI 0.10.24, iPhone 17 Pro simulator on an M4 Mac):
+
+| Check | Result |
+| --- | --- |
+| Solid red / solid blue image, "what color is this?" | "Black" for both (text-only control: "Blue") |
+| MediaPipe's own `SkCopyPixelsFromCGImage`, called directly | Correct pixels (red reads as red) |
+| Same image and harness on an iPhone 16 Pro Max | Transcribes the image correctly |
+| `preferred_backend = CPU` through the C API | Still "Black" |
+| Stack sample during image encoding | `LiteRTVisionExecutor::Encode` → `ml_drift::metal::BHWCBufferToTensorConverter::Encode` → the simulator's Metal layer (`MTLSerializer`, `MTLSimDriver`) |
+
+So the pixels are correct until MediaPipe copies them into the vision encoder's input tensor, and that copy runs on Metal even when the language model runs on the CPU. Under the simulator's Metal translation layer it produces zeros. MediaPipe exposes no setting that moves this step off Metal. Test image transcription on a device.
 
 ## Image-to-PDF Pipeline
 
@@ -439,7 +456,7 @@ Aggregate statistics computed on-demand:
 - **macOS**: Sonoma (14.0) or later
 - **Xcode**: 15.0 or later
 - **iOS Target**: 17.0 or later (iPhone/iPad with A12 Bionic or newer recommended)
-- **No GPU required**: CPU-only inference on ARM via MediaPipe backends
+- **Physical device for image tests**: the iOS Simulator can't be used to check transcription quality (see [Testing in the simulator](#testing-in-the-simulator))
 - **CocoaPods**: Installed via `sudo gem install cocoapods`
 
 ### Installation
