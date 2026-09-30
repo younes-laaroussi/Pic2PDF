@@ -678,6 +678,7 @@ final class OnDeviceLLMService: ObservableObject {
                 firstTokenTime = Date()
             }
 
+
             let now = Date()
             if now.timeIntervalSince(lastUIUpdate) >= (1.0 / 30.0) {
                 let elapsedTime = now.timeIntervalSince(generationStartTime)

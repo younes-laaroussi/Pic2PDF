@@ -75,6 +75,11 @@ enum LaTeXAutoFixer {
             text = trimmed
             report.steps.append("Removed \(removed) repeated line\(removed == 1 ? "" : "s")")
         }
+        let (unlooped, loopLines) = collapseLoopRuns(text)
+        if loopLines > 0 {
+            text = unlooped
+            report.steps.append("Removed \(loopLines) lines of a runaway repetition")
+        }
         let (deduped, removedBlocks) = removeDuplicateBlocks(text)
         if removedBlocks > 0 {
             text = deduped
@@ -220,6 +225,52 @@ enum LaTeXAutoFixer {
 
     private static func occurrences(of pattern: String, in text: String) -> Int {
         (try? NSRegularExpression(pattern: pattern))?.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) ?? 0
+    }
+
+    // MARK: - Runaway loops
+
+    /// Consecutive lines needed before a run of same-shaped lines counts as a loop. High enough that
+    /// real lists (x_1 = 2, x_2 = 5, ...) pass; a looping model produces far more.
+    static let loopRunLength = 16
+
+    /// A line's shape: digits collapsed to "#", whitespace squeezed. "12:00 12:30" and "1:00 1:30" match.
+    static func lineShape(_ line: String) -> String {
+        line.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: #"[0-9]+"#, with: "#", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+    }
+
+    /// True if the text ends in a runaway loop: the last `loopRunLength` non-empty lines follow at
+    /// most two shapes (one repeating line, or an alternating pair).
+    static func isLooping(_ text: String) -> Bool {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        // Ignore a partial last line while streaming.
+        guard lines.count > loopRunLength else { return false }
+        let tail = lines.dropLast().suffix(loopRunLength).map(lineShape)
+        guard tail.count == loopRunLength, tail.allSatisfy({ $0.count >= 3 }) else { return false }
+        return Set(tail).count <= 2
+    }
+
+    /// Shortens runs of `loopRunLength`+ same-shaped lines to their first three.
+    static func collapseLoopRuns(_ text: String) -> (String, Int) {
+        let lines = text.components(separatedBy: "\n")
+        var result: [String] = []
+        var removed = 0
+        var i = 0
+        while i < lines.count {
+            let shape = lineShape(lines[i])
+            var j = i + 1
+            while j < lines.count, !shape.isEmpty, shape.count >= 3, lineShape(lines[j]) == shape { j += 1 }
+            if j - i >= loopRunLength {
+                result.append(contentsOf: lines[i..<(i + 3)])
+                removed += j - i - 3
+            } else {
+                result.append(contentsOf: lines[i..<j])
+            }
+            i = j
+        }
+        return (result.joined(separator: "\n"), removed)
     }
 
     static func ensureDocument(_ text: String) -> String {
