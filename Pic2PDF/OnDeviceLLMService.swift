@@ -340,8 +340,10 @@ final class OnDeviceLLMService: ObservableObject {
         return [512, 768, 1024].contains(value) ? value : 768
     }
 
+    /// The most recent run's diagnostics (kept even when saving diagnostics is off).
+    @Published private(set) var lastRun: RunDiagnostics?
     /// ID of the most recent run's diagnostics, so the caller can link it to the saved result.
-    private(set) var lastDiagnosticsID: UUID?
+    var lastDiagnosticsID: UUID? { lastRun?.id }
 
     /// Validates the LaTeX with latex.js and repairs it; records what happened on the run.
     private func autoFix(_ latex: String, run: RunDiagnostics, status: GenerationStatus) async -> String {
@@ -367,6 +369,13 @@ final class OnDeviceLLMService: ObservableObject {
         guard let model = currentModel,
               let session = try? AIChatSession(model: model, topK: 1, topP: 1.0, temperature: 1.0, enableVisionModality: false)
         else { return nil }
+        // The prompt includes the document and the reply repeats it, so both must fit in the context.
+        let documentTokens = (try? session.sizeInTokens(text: latex)) ?? latex.count / 3
+        let contextTokens = isPerformanceModeEnabled ? min(1200, userMaxTokens) : userMaxTokens
+        guard documentTokens * 2 + 200 < contextTokens else {
+            NSLog("[OnDeviceLLM] Model repair skipped: \(documentTokens) tokens won't fit twice in \(contextTokens)")
+            return nil
+        }
         let prompt = """
         This LaTeX document fails to compile with this error:
         \(error)
@@ -561,7 +570,7 @@ final class OnDeviceLLMService: ObservableObject {
         run.modelName = preferredModel.rawValue
         run.succeeded = succeeded
         run.errorMessage = error?.localizedDescription
-        lastDiagnosticsID = run.id
+        lastRun = run
         if keepDiagnostics { StorageManager.shared.saveDiagnostics(run) }
     }
 

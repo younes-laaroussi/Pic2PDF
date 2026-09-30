@@ -19,11 +19,18 @@ struct LaTeXPreviewWithActionsView: View {
     @State private var isExporting = false
     @State private var shareURL: URL?
     @State private var showShareSheet = false
+    @State private var copied = false
+    @ObservedObject private var llmService = OnDeviceLLMService.shared
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
         LaTeXWebView(latex: currentLaTeX) { view in
             webView = view
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let run = llmService.lastRun, run.succeeded {
+                RunSummaryBar(run: run)
+            }
         }
         .navigationTitle("Preview")
         .navigationBarTitleDisplayMode(.inline)
@@ -34,6 +41,17 @@ struct LaTeXPreviewWithActionsView: View {
                     showRefinementSheet = true
                 } label: {
                     Label("Refine", systemImage: "wand.and.stars")
+                        .labelStyle(.titleAndIcon)
+                }
+
+                Spacer()
+
+                Button {
+                    UIPasteboard.general.string = currentLaTeX
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                } label: {
+                    Label(copied ? "Copied" : "Copy LaTeX", systemImage: copied ? "checkmark" : "doc.on.doc")
                         .labelStyle(.titleAndIcon)
                 }
 
@@ -89,6 +107,53 @@ struct LaTeXPreviewWithActionsView: View {
             case .failure(let error):
                 print("[Preview] Export failed: \(error)")
             }
+        }
+    }
+}
+
+/// One-line summary of the run that produced the preview; opens the full diagnostics.
+private struct RunSummaryBar: View {
+    let run: RunDiagnostics
+
+    var body: some View {
+        NavigationLink {
+            RunDiagnosticsDetailView(run: run)
+        } label: {
+            HStack(spacing: 12) {
+                metric(String(format: "%.1f s", run.timeToFirstTokenSeconds), "first token")
+                metric(String(format: "%.1f", run.decodeTokensPerSecond), "tok/s")
+                metric(String(format: "%.1f s", run.totalSeconds), "total")
+                Spacer(minLength: 0)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(run.acceleration)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(run.acceleration == "SME2" ? Color.accentColor : .secondary)
+                    Text(fixSummary)
+                        .font(.caption2)
+                        .foregroundStyle(run.fixRemainingError == nil ? Color.secondary : Color.orange)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var fixSummary: String {
+        if run.fixRemainingError != nil { return "LaTeX has an error" }
+        if run.usedModelRepair { return "Fixed by the model" }
+        if run.fixSteps.isEmpty { return "LaTeX OK" }
+        return "\(run.fixSteps.count) fix\(run.fixSteps.count == 1 ? "" : "es") applied"
+    }
+
+    private func metric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
+            Text(label).font(.caption2).foregroundStyle(.secondary)
         }
     }
 }

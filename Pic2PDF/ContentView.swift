@@ -13,29 +13,43 @@ import Combine
 struct ContentView: View {
     @StateObject private var mainGenerationViewModel = MainGenerationViewModel()
     @StateObject private var llmService = OnDeviceLLMService.shared
+    @State private var selectedTab = ContentView.initialTab
+
+    /// Debug builds can open a tab at launch (PIC2PDF_DEBUG_TAB=0...3) for screenshots and UI checks.
+    private static var initialTab: Int {
+        #if DEBUG
+        return Int(ProcessInfo.processInfo.environment["PIC2PDF_DEBUG_TAB"] ?? "") ?? 0
+        #else
+        return 0
+        #endif
+    }
 
     var body: some View {
         ZStack {
-            TabView {
+            TabView(selection: $selectedTab) {
                 MainGenerationView(viewModel: mainGenerationViewModel)
                     .tabItem {
                         Label("Generate", systemImage: "doc.badge.plus")
                     }
+                    .tag(0)
 
                 HistoryView()
                     .tabItem {
                         Label("History", systemImage: "clock.arrow.circlepath")
                     }
+                    .tag(1)
 
                 StatsView()
                     .tabItem {
                         Label("Analytics", systemImage: "chart.bar.fill")
                     }
+                    .tag(2)
 
                 SettingsView()
                     .tabItem {
                         Label("Settings", systemImage: "gearshape")
                     }
+                    .tag(3)
             }
 
             // Covers the tabs while the model works, so nothing else can start meanwhile.

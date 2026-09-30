@@ -55,7 +55,16 @@ final class LaTeXValidator: NSObject, WKNavigationDelegate {
         guard let webView else { return Issue(message: "Validator unavailable", line: nil, column: nil) }
         let script = """
         try {
-          latexjs.parse(src, { generator: new latexjs.HtmlGenerator({ hyphenate: false }) });
+          const generator = new latexjs.HtmlGenerator({ hyphenate: false });
+          latexjs.parse(src, { generator: generator });
+          // latex.js hands math to KaTeX, which doesn't throw: it renders errors in red with a
+          // .katex-error element. Render and look for those too.
+          const fragment = generator.domFragment();
+          const mathError = fragment.querySelector && fragment.querySelector(".katex-error");
+          if (mathError) {
+            return { message: "Math error: " + (mathError.getAttribute("title") || "KaTeX could not render") +
+                              " in: " + (mathError.textContent || "").slice(0, 120), line: null, column: null };
+          }
           return null;
         } catch (e) {
           const loc = e.location && e.location.start;

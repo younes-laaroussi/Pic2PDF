@@ -145,6 +145,7 @@ private struct GenerationRow: View {
 
 struct GenerationDetailView: View {
     let generation: Generation
+    @EnvironmentObject private var storage: StorageManager
     @State private var webView: WKWebView?
     @State private var shareURL: URL?
     @State private var showShareSheet = false
@@ -164,6 +165,14 @@ struct GenerationDetailView: View {
                 LabeledContent("Images", value: "\(generation.imageCount)")
                 if !generation.refinementHistory.isEmpty {
                     LabeledContent("Refinements", value: "\(generation.refinementHistory.count)")
+                }
+                ForEach(storage.diagnostics(forGeneration: generation.id)) { run in
+                    NavigationLink {
+                        RunDiagnosticsDetailView(run: run)
+                    } label: {
+                        LabeledContent(run.kind == "refine" ? "Refinement run" : "Generation run",
+                                       value: String(format: "%.1f s · %@", run.totalSeconds, run.acceleration))
+                    }
                 }
             }
 

@@ -23,6 +23,11 @@ struct SettingsView: View {
     @AppStorage("llmTopP") private var topP: Double = 0.9
     @AppStorage("llmTopK") private var topK: Int = 40
     @AppStorage("llmMaxTokens") private var maxTokens: Int = 2000
+    @AppStorage(SettingsKey.imageMaxDimension) private var imageMaxDimension = 768
+    @AppStorage(SettingsKey.latexAutoFix) private var latexAutoFix = true
+    @AppStorage(SettingsKey.latexModelRepair) private var latexModelRepair = true
+    @AppStorage(SettingsKey.keepDiagnostics) private var keepDiagnostics = true
+    @State private var showClearDiagnosticsAlert = false
 
     @State private var showClearDataAlert = false
     @State private var downloadingModel: ModelIdentifier?
@@ -57,6 +62,24 @@ struct SettingsView: View {
                     Toggle("Performance Mode", isOn: $performanceModeEnabled)
                 } footer: {
                     Text("Smaller images and shorter output for faster results.")
+                }
+
+                Section {
+                    Picker("Image detail", selection: $imageMaxDimension) {
+                        Text("Fast (512 px)").tag(512)
+                        Text("Balanced (768 px)").tag(768)
+                        Text("Detailed (1024 px)").tag(1024)
+                    }
+                    .disabled(performanceModeEnabled)
+                    Toggle("Check and fix LaTeX", isOn: $latexAutoFix)
+                    Toggle("Let the model fix errors", isOn: $latexModelRepair)
+                        .disabled(!latexAutoFix)
+                } header: {
+                    Text("Transcription")
+                } footer: {
+                    Text(performanceModeEnabled
+                         ? "Performance Mode uses 512 px images. Results are checked with latex.js, the same library that renders them; if a result wouldn't render, the app repairs it, and can ask the model to fix the exact error."
+                         : "768 px is the vision encoder's native size; 1024 px keeps more detail for dense pages but takes longer. Results are checked with latex.js, the same library that renders them; if a result wouldn't render, the app repairs it, and can ask the model to fix the exact error.")
                 }
 
                 Section {
@@ -113,14 +136,32 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Save run diagnostics", isOn: $keepDiagnostics)
+                    LabeledContent("Saved runs", value: "\(storageManager.diagnostics.count)")
+                    if !storageManager.diagnostics.isEmpty {
+                        ShareLink(item: DiagnosticsExport.file(for: storageManager.diagnostics, format: .csv),
+                                  preview: SharePreview("Run diagnostics (CSV)")) {
+                            Label("Export Diagnostics", systemImage: "square.and.arrow.up")
+                        }
+                        Button("Delete Diagnostics", role: .destructive) {
+                            showClearDiagnosticsAlert = true
+                        }
+                    }
+                } header: {
+                    Text("Diagnostics")
+                } footer: {
+                    Text("Timing, memory, acceleration and LaTeX checks for each run, shown in Analytics. Stays on this device unless you export it.")
+                }
+
+                Section {
                     LabeledContent("Version", value: appVersion)
                     Button("Show Welcome Screen") {
                         withAnimation {
                             appState.restartOnboarding()
                         }
                     }
-                    Link("GitHub Repository", destination: URL(string: "https://github.com/youneslaaroussi/Pic2PDF")!)
-                    Link("Privacy Policy", destination: URL(string: "https://github.com/youneslaaroussi/Pic2PDF/blob/main/PRIVACY.md")!)
+                    Link("GitHub Repository", destination: URL(string: "https://github.com/younes-laaroussi/Pic2PDF")!)
+                    Link("Privacy Policy", destination: URL(string: "https://github.com/younes-laaroussi/Pic2PDF/blob/main/PRIVACY.md")!)
                 } header: {
                     Text("About")
                 } footer: {
@@ -128,6 +169,12 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .alert("Delete Diagnostics?", isPresented: $showClearDiagnosticsAlert) {
+                Button("Delete", role: .destructive) { storageManager.deleteAllDiagnostics() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This deletes the saved timing and memory data for all runs. Your documents are kept.")
+            }
             .alert("Clear All Data?", isPresented: $showClearDataAlert) {
                 Button("Delete All", role: .destructive) {
                     clearAllData()
@@ -146,7 +193,7 @@ struct SettingsView: View {
         if SME2Support.needsRestart {
             return "Restart Img2Latex to apply."
         }
-        return "Runs the AI model on the CPU's SME2 matrix units. Turn off to use NEON."
+        return "Runs the language model on the CPU's SME2 matrix units. Turn off to use NEON."
     }
 
     private var appVersion: String {

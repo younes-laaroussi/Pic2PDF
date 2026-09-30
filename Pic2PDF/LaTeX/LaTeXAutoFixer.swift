@@ -43,14 +43,19 @@ enum LaTeXAutoFixer {
             report.remainingError = describe(issue)
         }
 
-        if let error = report.remainingError, let modelRepair,
-           let repaired = await modelRepair(current, error) {
-            let candidate = prepare(repaired, report: &report)
-            if await validator.validate(candidate) == nil {
-                report.usedModelRepair = true
-                report.steps.append("Model repaired: \(error)")
-                report.remainingError = nil
-                return (candidate, report)
+        if let error = report.remainingError, let modelRepair {
+            if let repaired = await modelRepair(current, error) {
+                var scratch = LaTeXFixReport()
+                let candidate = prepare(repaired, report: &scratch)
+                if await validator.validate(candidate) == nil {
+                    report.usedModelRepair = true
+                    report.steps.append("Model repaired: \(error)")
+                    report.remainingError = nil
+                    return (candidate, report)
+                }
+                report.steps.append("Model repair didn't produce valid LaTeX")
+            } else {
+                report.steps.append("Model repair skipped (document too long or model unavailable)")
             }
         }
         return (current, report)
@@ -70,10 +75,32 @@ enum LaTeXAutoFixer {
             text = trimmed
             report.steps.append("Removed \(removed) repeated line\(removed == 1 ? "" : "s")")
         }
+        let (deduped, removedBlocks) = removeDuplicateBlocks(text)
+        if removedBlocks > 0 {
+            text = deduped
+            report.steps.append("Removed \(removedBlocks) repeated block\(removedBlocks == 1 ? "" : "s")")
+        }
+        let (untruncated, droppedTail) = dropUnclosedTrailingBlock(text)
+        if droppedTail {
+            text = untruncated
+            report.steps.append("Removed an incomplete last block (output was cut off)")
+        }
+        // Convert equation/align-style wrappers to \\[ \\] first, so the next step sees every display block.
         let sanitized = LaTeXSanitizer.clean(text)
         if sanitized != text {
             text = sanitized
             report.steps.append("Converted environments latex.js doesn't support")
+        }
+        let (closed, closedCount) = closeEnvironmentsInDisplayMath(text)
+        if closedCount > 0 {
+            text = closed
+            report.steps.append("Closed \(closedCount) unclosed environment\(closedCount == 1 ? "" : "s") inside display math")
+        }
+        // Closing environments can turn a damaged copy into an exact duplicate of an earlier block.
+        let (dedupedAgain, removedAgain) = removeDuplicateBlocks(text)
+        if removedAgain > 0 {
+            text = dedupedAgain
+            report.steps.append("Removed \(removedAgain) repeated block\(removedAgain == 1 ? "" : "s")")
         }
         let wrapped = ensureDocument(text)
         if wrapped != text {
@@ -118,6 +145,83 @@ enum LaTeXAutoFixer {
         return (result.joined(separator: "\n"), removed)
     }
 
+    /// Greedy decoding also loops over *sets* of blocks (A, B, A, B, ...), sometimes with a broken copy.
+    /// Drops any paragraph block (text between blank lines) that repeats an earlier one.
+    static func removeDuplicateBlocks(_ text: String) -> (String, Int) {
+        let blocks = text.components(separatedBy: "\n\n")
+        guard blocks.count > 3 else { return (text, 0) }
+        var seen = Set<String>()
+        var kept: [String] = []
+        var removed = 0
+        for block in blocks {
+            let key = block.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
+            let isStructural = key.isEmpty || key.hasPrefix("\\documentclass") || key.hasPrefix("\\end{document}") || key.count < 12
+            if !isStructural && seen.contains(key) {
+                removed += 1
+                continue
+            }
+            seen.insert(key)
+            kept.append(block)
+        }
+        return (kept.joined(separator: "\n\n"), removed)
+    }
+
+    /// A reply cut off at the token limit ends mid-formula. If the last block (before \end{document})
+    /// opens more environments or \[ than it closes, it can't be completed reliably, so drop it.
+    static func dropUnclosedTrailingBlock(_ text: String) -> (String, Bool) {
+        var lines = text.components(separatedBy: "\n")
+        let endDoc = lines.lastIndex(where: { $0.contains("\\end{document}") }) ?? lines.count
+        // Last non-blank line before \end{document}, then walk back to the blank line that starts its block.
+        var last = endDoc - 1
+        while last >= 0, lines[last].trimmingCharacters(in: .whitespaces).isEmpty { last -= 1 }
+        guard last >= 0 else { return (text, false) }
+        var first = last
+        while first > 0, !lines[first - 1].trimmingCharacters(in: .whitespaces).isEmpty { first -= 1 }
+        let block = lines[first...last].joined(separator: "\n")
+        guard first > 0, !block.contains("\\begin{document}") else { return (text, false) }
+        let opens = occurrences(of: #"\\begin\{"#, in: block) + occurrences(of: #"\\\["#, in: block)
+        let closes = occurrences(of: #"\\end\{"#, in: block) + occurrences(of: #"\\\]"#, in: block)
+        guard opens > closes else { return (text, false) }
+        // Never drop most of the document: only a trailing fragment.
+        let contentChars = lines.joined().count
+        guard block.count * 3 < contentChars else { return (text, false) }
+        lines.removeSubrange(first...last)
+        return (lines.joined(separator: "\n"), true)
+    }
+
+    /// Inside each \[ ... \], closes environments that were opened but never closed (e.g. a looping reply
+    /// that dropped \end{aligned}).
+    static func closeEnvironmentsInDisplayMath(_ text: String) -> (String, Int) {
+        guard let regex = try? NSRegularExpression(pattern: #"\\\[([\s\S]*?)\\\]"#) else { return (text, 0) }
+        let ns = text as NSString
+        var result = text
+        var total = 0
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let inner = ns.substring(with: match.range(at: 1))
+            var stack: [String] = []
+            if let envRegex = try? NSRegularExpression(pattern: #"\\(begin|end)\{([^}]+)\}"#) {
+                let innerNS = inner as NSString
+                for m in envRegex.matches(in: inner, range: NSRange(location: 0, length: innerNS.length)) {
+                    let kind = innerNS.substring(with: m.range(at: 1))
+                    let name = innerNS.substring(with: m.range(at: 2))
+                    if kind == "begin" { stack.append(name) } else if stack.last == name { stack.removeLast() }
+                }
+            }
+            guard !stack.isEmpty else { continue }
+            total += stack.count
+            let closing = stack.reversed().map { "\\end{\($0)}" }.joined(separator: "\n")
+            let fixedInner = inner.trimmingCharacters(in: .whitespacesAndNewlines) + "\n" + closing
+            if let range = Range(match.range, in: result) {
+                result.replaceSubrange(range, with: "\\[\n" + fixedInner + "\n\\]")
+            }
+        }
+        return (result, total)
+    }
+
+    private static func occurrences(of pattern: String, in text: String) -> Int {
+        (try? NSRegularExpression(pattern: pattern))?.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) ?? 0
+    }
+
     static func ensureDocument(_ text: String) -> String {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.contains("\\begin{document}") {
@@ -156,9 +260,28 @@ enum LaTeXAutoFixer {
             let replacementOpen = mathEnvs.contains(where: { env.hasPrefix($0) }) ? "\\\\[" : ""
             let replacementClose = mathEnvs.contains(where: { env.hasPrefix($0) }) ? "\\\\]" : ""
             let fixed = text
-                .replacingOccurrences(of: "\\\\begin\\{\(e)\\}", with: replacementOpen, options: .regularExpression)
-                .replacingOccurrences(of: "\\\\end\\{\(e)\\}", with: replacementClose, options: .regularExpression)
-            return (fixed, "Replaced unsupported environment '\(env)'")
+                .replacingOccurrences(of: "\\\\begin\\{\(e)\\*?\\}", with: replacementOpen, options: .regularExpression)
+                .replacingOccurrences(of: "\\\\end\\{\(e)\\*?\\}", with: replacementClose, options: .regularExpression)
+            if fixed != text {
+                return (fixed, "Replaced unsupported environment '\(env)'")
+            }
+        }
+
+        // KaTeX render errors (from the validator) have no line: repair the display block with the snippet.
+        if issue.message.hasPrefix("Math error:") {
+            let (closed, count) = closeEnvironmentsInDisplayMath(latex)
+            if count > 0 { return (closed, "Closed \(count) unclosed math environment\(count == 1 ? "" : "s")") }
+            if let snippetRange = issue.message.range(of: " in: ") {
+                let snippet = String(issue.message[snippetRange.upperBound...]).prefix(25)
+                if !snippet.isEmpty, let idx = lines.firstIndex(where: { $0.contains(snippet.trimmingCharacters(in: .whitespaces)) }) {
+                    let balanced = balance(lines[idx])
+                    if balanced != lines[idx] {
+                        lines[idx] = balanced
+                        return (lines.joined(separator: "\n"), "Balanced math on line \(idx + 1)")
+                    }
+                }
+            }
+            return nil
         }
 
         guard let lineNo = issue.line, lineNo >= 1, lineNo <= lines.count, let col = issue.column else {
@@ -203,7 +326,23 @@ enum LaTeXAutoFixer {
                 return (lines.joined(separator: "\n"), "Balanced delimiters on line \(target + 1)")
             }
         }
-        return nil
+        return dropTruncatedLastBlock(latex, errorLine: lineNo)
+    }
+
+    /// A reply cut off at the token limit ends mid-equation. If the error is in the last content block,
+    /// drop that block rather than guess how it ended.
+    static func dropTruncatedLastBlock(_ latex: String, errorLine: Int) -> (String, String)? {
+        var lines = latex.components(separatedBy: "\n")
+        guard let endDoc = lines.lastIndex(where: { $0.contains("\\end{document}") }) else { return nil }
+        // Start of the last block: the line after the last blank line before \end{document}.
+        var start = endDoc - 1
+        while start >= 0, lines[start].trimmingCharacters(in: .whitespaces).isEmpty { start -= 1 }
+        let lastContent = start
+        while start > 0, !lines[start - 1].trimmingCharacters(in: .whitespaces).isEmpty { start -= 1 }
+        guard lastContent >= start, errorLine - 1 >= start, lines[start...lastContent].count < lines.count / 2,
+              !lines[start].contains("\\begin{document}") else { return nil }
+        lines.removeSubrange(start...lastContent)
+        return (lines.joined(separator: "\n"), "Removed an incomplete last block (output was cut off)")
     }
 
     private static func match(_ text: String, _ pattern: String) -> (String, String)? {
@@ -267,12 +406,14 @@ enum LaTeXAutoFixer {
         }
         var result = String(kept)
         if depth > 0 {
-            // Close braces before a trailing $ so they stay inside the math.
-            if result.hasSuffix("$") {
-                result.removeLast()
-                result += String(repeating: "}", count: depth) + "$"
+            // Close braces before a trailing math delimiter ($, \], \)) so they stay inside the math.
+            let braces = String(repeating: "}", count: depth)
+            let trimmed = result.trimmingCharacters(in: .whitespaces)
+            if let closer = ["\\]", "\\)", "$"].first(where: { trimmed.hasSuffix($0) }),
+               let range = result.range(of: closer, options: .backwards) {
+                result.replaceSubrange(range, with: braces + " " + closer)
             } else {
-                result += String(repeating: "}", count: depth)
+                result += braces
             }
         }
         let opensDisplay = result.components(separatedBy: "\\[").count - 1
