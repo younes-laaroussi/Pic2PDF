@@ -121,7 +121,22 @@ struct OnDeviceModel {
         let weightCacheModeKey = "xnnCacheBuiltMode_\(modelIdentifier.fileName)"
         try OnDeviceModel.invalidateWeightCacheIfNeeded(at: weightCacheURL, builtModeKey: weightCacheModeKey, launchMode: launchMode)
 
+        // XNNPACK aborts the process (it can't be caught) if a cache on disk doesn't match the graph it is
+        // loading, which would crash every launch. Mark the load as in progress with a file (written
+        // synchronously, unlike UserDefaults); if the next launch still finds it, the previous load died,
+        // so start from an empty cache.
+        let loadMarkerURL = URL(fileURLWithPath: weightCacheURL.path + ".loading")
+        if fileManager.fileExists(atPath: loadMarkerURL.path) {
+            if fileManager.fileExists(atPath: weightCacheURL.path) {
+                try? fileManager.removeItem(at: weightCacheURL)
+                NSLog("[SME2] Previous model load did not finish; deleted XNNPACK weight cache \(weightCacheURL.lastPathComponent)")
+            }
+            UserDefaults.standard.removeObject(forKey: weightCacheModeKey)
+        }
+        fileManager.createFile(atPath: loadMarkerURL.path, contents: nil)
+
         inference = try LlmInference(options: options)
+        try? fileManager.removeItem(at: loadMarkerURL)
         UserDefaults.standard.set(launchMode.rawValue, forKey: weightCacheModeKey)
         SME2Support.recordActiveModeAfterLoad()
     }
