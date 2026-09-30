@@ -67,41 +67,51 @@ enum LaTeXSanitizer {
         return cleaned
     }
     
+    /// Rewrites a display-math environment latex.js doesn't know (equation, align, gather, multline) as
+    /// `\\[ ... \\]`. Multi-row content keeps its rows: it goes into KaTeX's `aligned` (for align) or
+    /// `gathered` environment, which latex.js renders, instead of being flattened into one line.
     private static func replaceEnvironment(in text: String, name: String, removeAlignMarkers: Bool) -> String {
         let pattern = #"\\begin\{\#(name)\*?\}[\s\S]*?\\end\{\#(name)\*?\}"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
             return text
         }
-        
+
         let nsText = text as NSString
         let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
-        
+
         var result = text
         // Process matches in reverse to maintain correct indices
         for match in matches.reversed() {
             let matchRange = match.range
             let matchText = nsText.substring(with: matchRange)
-            
+
             // Extract content between \begin and \end
             var content = matchText
                 .replacingOccurrences(of: #"\\begin\{\#(name)\*?\}\s*"#, with: "", options: .regularExpression)
                 .replacingOccurrences(of: #"\s*\\end\{\#(name)\*?\}"#, with: "", options: .regularExpression)
-            
-            if removeAlignMarkers {
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Blank lines are paragraph breaks, which aren't allowed inside math.
+            content = content.replacingOccurrences(of: #"\n\s*\n"#, with: "\n", options: .regularExpression)
+
+            let hasRows = content.contains("\\\\")
+            let hasRowEnvironment = content.range(of: #"\\begin\{(aligned|gathered|split|array|cases|[pbBvV]?matrix)\}"#, options: .regularExpression) != nil
+            if hasRows && !hasRowEnvironment {
+                // align keeps its & alignment points; the others center each row.
+                let inner = removeAlignMarkers ? "aligned" : "gathered"
+                if !removeAlignMarkers { content = content.replacingOccurrences(of: "&", with: "") }
+                content = "\\begin{\(inner)}\n\(content)\n\\end{\(inner)}"
+            } else if removeAlignMarkers && !hasRowEnvironment {
                 content = content.replacingOccurrences(of: "&", with: "")
             }
-            
-            content = content
-                .replacingOccurrences(of: #"\\\\"#, with: "\n", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            
+
             let replacement = "\\[\n\(content)\n\\]"
-            
+
             if let range = Range(matchRange, in: result) {
                 result = result.replacingCharacters(in: range, with: replacement)
             }
         }
-        
+
         return result
     }
 }

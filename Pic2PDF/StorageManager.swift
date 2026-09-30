@@ -20,12 +20,14 @@ class StorageManager: ObservableObject {
     
     @Published var generations: [Generation] = []
     @Published var favoriteGenerations: [Generation] = []
+    @Published var diagnostics: [RunDiagnostics] = []
     
     private init() {
         do {
             let schema = Schema([
                 Generation.self,
-                RefinementEntry.self
+                RefinementEntry.self,
+                RunDiagnostics.self
             ])
             
             let modelConfiguration = ModelConfiguration(
@@ -46,6 +48,7 @@ class StorageManager: ObservableObject {
             Task {
                 await loadGenerations()
             }
+            loadDiagnostics()
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
@@ -53,12 +56,13 @@ class StorageManager: ObservableObject {
     
     // MARK: - Save Generation
     
+    @discardableResult
     func saveGeneration(
         images: [UIImage],
         latex: String,
         pdfDocument: PDFDocument?,
         title: String? = nil
-    ) throws {
+    ) throws -> Generation {
         print("[Storage] Saving new generation")
         
         // Convert images to data
@@ -85,10 +89,45 @@ class StorageManager: ObservableObject {
             Task {
                 await loadGenerations()
             }
+            return generation
         } catch {
             print("[Storage] ERROR: Failed to save generation: \(error)")
             throw error
         }
+    }
+
+    // MARK: - Run Diagnostics
+
+    func saveDiagnostics(_ run: RunDiagnostics) {
+        modelContext.insert(run)
+        do {
+            try modelContext.save()
+            loadDiagnostics()
+        } catch {
+            print("[Storage] ERROR: Failed to save diagnostics: \(error)")
+        }
+    }
+
+    /// Links a run to the result it produced, once that result has been saved.
+    func link(diagnosticsID: UUID?, to generationID: UUID) {
+        guard let diagnosticsID, let run = diagnostics.first(where: { $0.id == diagnosticsID }) else { return }
+        run.generationID = generationID
+        try? modelContext.save()
+    }
+
+    func loadDiagnostics() {
+        let descriptor = FetchDescriptor<RunDiagnostics>(sortBy: [SortDescriptor(\.timestamp, order: .reverse)])
+        diagnostics = (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    func diagnostics(forGeneration id: UUID) -> [RunDiagnostics] {
+        diagnostics.filter { $0.generationID == id }.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    func deleteAllDiagnostics() {
+        for run in diagnostics { modelContext.delete(run) }
+        try? modelContext.save()
+        loadDiagnostics()
     }
     
     // MARK: - Load Generations

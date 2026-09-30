@@ -87,6 +87,10 @@ enum SME2Benchmark {
 
     /// Hardware model identifier, e.g. "iPhone17,2" (UIDevice.model only says "iPhone").
     static func deviceModelIdentifier() -> String {
+        // In the simulator uname reports the Mac's architecture; the simulated model is in the environment.
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] {
+            return simulated + " (Simulator)"
+        }
         var systemInfo = utsname()
         uname(&systemInfo)
         let identifier = withUnsafeBytes(of: &systemInfo.machine) { buffer in
@@ -115,6 +119,8 @@ enum SME2Benchmark {
 /// Samples resident memory on a timer, so the peak during prefill (when no chunks arrive) is caught.
 final class PeakMemorySampler {
     private(set) var peakMB: Double = 0
+    /// Peak physical footprint (what iOS charges the app), sampled alongside resident size.
+    private(set) var peakFootprintMB: Double = 0
     private var task: Task<Void, Never>?
 
     func start() {
@@ -130,6 +136,7 @@ final class PeakMemorySampler {
 
     func sample() {
         peakMB = max(peakMB, ProcessMetrics.currentResidentMemoryMB())
+        peakFootprintMB = max(peakFootprintMB, ProcessMetrics.currentFootprintMB())
     }
 
     func stop() {

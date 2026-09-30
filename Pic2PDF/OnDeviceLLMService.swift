@@ -331,6 +331,59 @@ final class OnDeviceLLMService: ObservableObject {
         return value > 0 ? value : 2000
     }
 
+    // Settings added with diagnostics / auto-fix (defaults registered in Pic2PDFApp.init).
+    private var keepDiagnostics: Bool { UserDefaults.standard.bool(forKey: SettingsKey.keepDiagnostics) }
+    private var latexAutoFixEnabled: Bool { UserDefaults.standard.bool(forKey: SettingsKey.latexAutoFix) }
+    private var latexModelRepairEnabled: Bool { UserDefaults.standard.bool(forKey: SettingsKey.latexModelRepair) }
+    private var imageMaxDimension: Int {
+        let value = UserDefaults.standard.integer(forKey: SettingsKey.imageMaxDimension)
+        return [512, 768, 1024].contains(value) ? value : 768
+    }
+
+    /// ID of the most recent run's diagnostics, so the caller can link it to the saved result.
+    private(set) var lastDiagnosticsID: UUID?
+
+    /// Validates the LaTeX with latex.js and repairs it; records what happened on the run.
+    private func autoFix(_ latex: String, run: RunDiagnostics, status: GenerationStatus) async -> String {
+        guard latexAutoFixEnabled else { return latex }
+        status.statusMessage = "Checking LaTeX..."
+        let start = Date()
+        let repair: ((String, String) async -> String?)? = latexModelRepairEnabled
+            ? { [weak self] broken, error in
+                status.statusMessage = "Asking the model to fix a LaTeX error..."
+                return await self?.modelRepairLaTeX(broken, error: error)
+            }
+            : nil
+        let (fixed, report) = await LaTeXAutoFixer.fix(latex, modelRepair: repair)
+        run.fixSeconds = Date().timeIntervalSince(start)
+        run.fixSteps = report.steps
+        run.fixRemainingError = report.remainingError
+        run.usedModelRepair = report.usedModelRepair
+        return fixed
+    }
+
+    /// Gives the model the exact latex.js error and asks for a corrected document (text only, greedy).
+    private func modelRepairLaTeX(_ latex: String, error: String) async -> String? {
+        guard let model = currentModel,
+              let session = try? AIChatSession(model: model, topK: 1, topP: 1.0, temperature: 1.0, enableVisionModality: false)
+        else { return nil }
+        let prompt = """
+        This LaTeX document fails to compile with this error:
+        \(error)
+
+        Fix only what causes the error. Keep all content. Use only \\documentclass{article}, amsmath and amssymb, \\[ \\] for display math and $ $ for inline math. Return only the corrected LaTeX document.
+
+        \(latex)
+        """
+        do {
+            var reply = ""
+            for try await chunk in try await session.generateLaTeX(prompt: prompt) { reply += chunk }
+            return extractLaTeXFromResponse(reply)
+        } catch {
+            NSLog("[OnDeviceLLM] Model repair failed: \(error)")
+            return nil
+        }
+    }
     // MARK: - Singleton
     static let shared = OnDeviceLLMService()
 
@@ -485,6 +538,37 @@ final class OnDeviceLLMService: ObservableObject {
     func generateLaTeX(from images: [UIImage],
                        additionalPrompt: String? = nil,
                        status: GenerationStatus) async throws -> String {
+        let run = RunDiagnostics(kind: "generate")
+        let sampler = PeakMemorySampler()
+        sampler.start()
+        defer { sampler.stop() }
+        do {
+            let latex = try await performGeneration(from: images, additionalPrompt: additionalPrompt, status: status, run: run)
+            finishRun(run, sampler: sampler, succeeded: true, error: nil)
+            return latex
+        } catch {
+            finishRun(run, sampler: sampler, succeeded: false, error: error)
+            throw error
+        }
+    }
+
+    /// Saves a run's diagnostics (success or failure) if the user keeps them.
+    private func finishRun(_ run: RunDiagnostics, sampler: PeakMemorySampler, succeeded: Bool, error: Error?) {
+        sampler.sample()
+        run.peakMemoryMB = sampler.peakFootprintMB
+        run.thermalEnd = RunDiagnostics.thermalName(ProcessInfo.processInfo.thermalState)
+        run.acceleration = SME2Support.activeMode?.displayName ?? "Unknown"
+        run.modelName = preferredModel.rawValue
+        run.succeeded = succeeded
+        run.errorMessage = error?.localizedDescription
+        lastDiagnosticsID = run.id
+        if keepDiagnostics { StorageManager.shared.saveDiagnostics(run) }
+    }
+
+    private func performGeneration(from images: [UIImage],
+                                   additionalPrompt: String?,
+                                   status: GenerationStatus,
+                                   run: RunDiagnostics) async throws -> String {
         guard isReady() else {
             throw OnDeviceLLMError.notInitialized
         }
@@ -510,6 +594,7 @@ final class OnDeviceLLMService: ObservableObject {
         // temperature and topP have no effect then. The user's sampling settings apply to refinement only.
         NSLog("[OnDeviceLLM] Creating vision-enabled session (perfMode=\(isPerformanceModeEnabled))")
         NSLog("[OnDeviceLLM] Parameters: greedy (topK=1)")
+        let sessionStart = Date()
         let session = try AIChatSession(
             model: currentModel!,
             topK: 1,
@@ -518,11 +603,13 @@ final class OnDeviceLLMService: ObservableObject {
             enableVisionModality: true
         )
         NSLog("[OnDeviceLLM] Session created with vision modality enabled")
+        run.sessionSeconds = Date().timeIntervalSince(sessionStart)
 
         // Downscale images in parallel (Accelerate) for lower memory and faster vision path
         os_signpost(.begin, log: signpostLog, name: "PreprocessImages")
         // 768 is the vision encoder's largest native input size; larger images only cost time and memory.
-        let maxDimension = isPerformanceModeEnabled ? 512 : 768
+        let maxDimension = isPerformanceModeEnabled ? 512 : imageMaxDimension
+        let preprocessStart = Date()
         let processedCGImages: [CGImage] = await withTaskGroup(of: (Int, CGImage?).self) { group in
             for (index, img) in images.enumerated() {
                 group.addTask(priority: .userInitiated) {
@@ -539,6 +626,10 @@ final class OnDeviceLLMService: ObservableObject {
             return byIndex.keys.sorted().compactMap { byIndex[$0] }
         }
         os_signpost(.end, log: signpostLog, name: "PreprocessImages")
+        run.preprocessSeconds = Date().timeIntervalSince(preprocessStart)
+        run.imageCount = processedCGImages.count
+        run.imageMaxDimension = maxDimension
+        run.imagePixels = processedCGImages.map { "\($0.width)x\($0.height)" }.joined(separator: ", ")
 
         NSLog("[OnDeviceLLM] Adding \(processedCGImages.count) images to query")
         for (index, cgImage) in processedCGImages.enumerated() {
@@ -564,6 +655,7 @@ final class OnDeviceLLMService: ObservableObject {
         let stream = try await session.generateLaTeX(prompt: prompt)
         var fullResponse = ""
         let generationStartTime = Date()
+        var firstTokenTime: Date?
         var lastUIUpdate = Date.distantPast
         firstTokenLogged = false
 
@@ -574,6 +666,7 @@ final class OnDeviceLLMService: ObservableObject {
             if !firstTokenLogged && !chunk.isEmpty {
                 os_signpost(.event, log: signpostLog, name: "FirstToken")
                 firstTokenLogged = true
+                firstTokenTime = Date()
             }
 
             let now = Date()
@@ -601,10 +694,20 @@ final class OnDeviceLLMService: ObservableObject {
         }
 
         // Extract LaTeX content from response (remove any extra text)
-        let latexResult = extractLaTeXFromResponse(fullResponse)
+        var latexResult = extractLaTeXFromResponse(fullResponse)
 
         // Estimate token count using model tokenizer; fallback to char/4 if unavailable
         let estimatedTokens = (try? session.sizeInTokens(text: fullResponse)) ?? (fullResponse.count / 4)
+
+        let generationEnd = Date()
+        run.timeToFirstTokenSeconds = (firstTokenTime ?? generationEnd).timeIntervalSince(generationStartTime)
+        run.decodeSeconds = generationEnd.timeIntervalSince(firstTokenTime ?? generationEnd)
+        run.totalSeconds = generationEnd.timeIntervalSince(startTime)
+        run.outputTokens = estimatedTokens
+        run.promptTokens = (try? session.sizeInTokens(text: prompt)) ?? 0
+        run.decodeTokensPerSecond = run.decodeSeconds > 0 && estimatedTokens > 1 ? Double(estimatedTokens - 1) / run.decodeSeconds : 0
+
+        latexResult = await autoFix(latexResult, run: run, status: status)
 
         // Record performance metrics
         recordGenerationMetrics(
@@ -627,6 +730,24 @@ final class OnDeviceLLMService: ObservableObject {
     func refineLaTeX(currentLaTeX: String,
                      userFeedback: String,
                      status: GenerationStatus) async throws -> String {
+        let run = RunDiagnostics(kind: "refine")
+        let sampler = PeakMemorySampler()
+        sampler.start()
+        defer { sampler.stop() }
+        do {
+            let latex = try await performRefinement(currentLaTeX: currentLaTeX, userFeedback: userFeedback, status: status, run: run)
+            finishRun(run, sampler: sampler, succeeded: true, error: nil)
+            return latex
+        } catch {
+            finishRun(run, sampler: sampler, succeeded: false, error: error)
+            throw error
+        }
+    }
+
+    private func performRefinement(currentLaTeX: String,
+                                   userFeedback: String,
+                                   status: GenerationStatus,
+                                   run: RunDiagnostics) async throws -> String {
         guard isReady() else {
             throw OnDeviceLLMError.notInitialized
         }
@@ -653,6 +774,7 @@ final class OnDeviceLLMService: ObservableObject {
         
         NSLog("[OnDeviceLLM] Creating text-only session for refinement")
         NSLog("[OnDeviceLLM] Parameters: temp=\(temp), topP=\(tP), topK=\(tK)")
+        let sessionStart = Date()
         let session = try AIChatSession(
             model: currentModel!,
             topK: tK,
@@ -660,6 +782,7 @@ final class OnDeviceLLMService: ObservableObject {
             temperature: temp,
             enableVisionModality: false
         )
+        run.sessionSeconds = Date().timeIntervalSince(sessionStart)
 
         await MainActor.run {
             status.statusMessage = "Refining LaTeX with on-device AI..."
@@ -673,6 +796,7 @@ final class OnDeviceLLMService: ObservableObject {
         let stream = try await session.generateLaTeX(prompt: prompt)
         var fullResponse = ""
         let generationStartTime = Date()
+        var firstTokenTime: Date?
         var lastUIUpdate = Date.distantPast
         firstTokenLogged = false
 
@@ -682,6 +806,7 @@ final class OnDeviceLLMService: ObservableObject {
             if !firstTokenLogged && !chunk.isEmpty {
                 os_signpost(.event, log: signpostLog, name: "FirstToken(Refine)")
                 firstTokenLogged = true
+                firstTokenTime = Date()
             }
 
             let now = Date()
@@ -708,10 +833,20 @@ final class OnDeviceLLMService: ObservableObject {
             status.progress = 1.0
         }
 
-        let latexResult = extractLaTeXFromResponse(fullResponse)
+        var latexResult = extractLaTeXFromResponse(fullResponse)
 
         // Estimate token count for refinement using tokenizer when possible
         let estimatedTokens = (try? session.sizeInTokens(text: fullResponse)) ?? (fullResponse.count / 4)
+
+        let generationEnd = Date()
+        run.timeToFirstTokenSeconds = (firstTokenTime ?? generationEnd).timeIntervalSince(generationStartTime)
+        run.decodeSeconds = generationEnd.timeIntervalSince(firstTokenTime ?? generationEnd)
+        run.totalSeconds = generationEnd.timeIntervalSince(startTime)
+        run.outputTokens = estimatedTokens
+        run.promptTokens = (try? session.sizeInTokens(text: prompt)) ?? 0
+        run.decodeTokensPerSecond = run.decodeSeconds > 0 && estimatedTokens > 1 ? Double(estimatedTokens - 1) / run.decodeSeconds : 0
+
+        latexResult = await autoFix(latexResult, run: run, status: status)
 
         // Record performance metrics for refinement (0 images since we're only refining LaTeX)
         recordGenerationMetrics(

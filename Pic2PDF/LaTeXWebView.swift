@@ -32,11 +32,13 @@ struct LaTeXWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        // Re-render if LaTeX changes
+        // Re-render only when the LaTeX actually changes (SwiftUI calls this on every view update).
+        guard context.coordinator.renderedLatex != latex else { return }
         context.coordinator.load(latex: latex, in: uiView)
     }
 
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+        var renderedLatex: String?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "jsLog", let msg = message.body as? String {
                 print("[LaTeXWebView][JS] \(msg)")
@@ -54,6 +56,7 @@ struct LaTeXWebView: UIViewRepresentable {
         }
 
         func load(latex: String, in webView: WKWebView) {
+            renderedLatex = latex
             print("[LaTeXWebView] load() called, latex length: \(latex.count)")
             print("[LaTeXWebView] First 200 chars of latex: \(String(latex.prefix(200)))")
             
@@ -61,11 +64,10 @@ struct LaTeXWebView: UIViewRepresentable {
             let cleanedLatex = LaTeXSanitizer.clean(latex)
             print("[LaTeXWebView] After cleaning: \(String(cleanedLatex.prefix(200)))")
             
-            // Standard JavaScript string escaping
-            let escaped = cleanedLatex
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\"", with: "\\\"")
+            // Embed as a JSON string literal: valid JavaScript for any input (\r, U+2028, quotes...).
+            // "</" is escaped so the text can never close the <script> element early.
+            let jsonArray = (try? JSONSerialization.data(withJSONObject: [cleanedLatex])).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+            let jsString = String(jsonArray.dropFirst().dropLast()).replacingOccurrences(of: "</", with: "<\\/")
 
             let html = """
             <!DOCTYPE html>
@@ -82,7 +84,7 @@ struct LaTeXWebView: UIViewRepresentable {
                 <script>
                   (function(){
                     try {
-                      const src = "\(escaped)";
+                      const src = \(jsString);
                       const generator = new latexjs.HtmlGenerator({ hyphenate: false });
                       latexjs.parse(src, { generator: generator });
                       
@@ -91,8 +93,10 @@ struct LaTeXWebView: UIViewRepresentable {
                       
                       // Append the generated HTML
                       document.body.appendChild(generator.domFragment());
+                      window.webkit.messageHandlers.renderStatus.postMessage("ok text=" + document.body.innerText.trim().length + " html=" + document.body.innerHTML.length);
                     } catch (e) {
                       document.body.innerHTML = '<pre style=\"color:red\">' + e.toString() + '</pre>';
+                      window.webkit.messageHandlers.renderStatus.postMessage("error " + e.toString());
                     }
                   })();
                 </script>

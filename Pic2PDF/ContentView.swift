@@ -242,12 +242,13 @@ struct MainGenerationView: View {
 
                 // Auto-save to history
                 do {
-                    try storageManager.saveGeneration(
+                    let saved = try storageManager.saveGeneration(
                         images: selectedImages,
                         latex: currentLaTeX,
                         pdfDocument: nil,
                         title: nil
                     )
+                    storageManager.link(diagnosticsID: onDeviceLLMService.lastDiagnosticsID, to: saved.id)
                 } catch {
                     print("[ContentView] Failed to auto-save: \(error)")
                 }

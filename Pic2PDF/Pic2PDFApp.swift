@@ -14,6 +14,7 @@ struct Pic2PDFApp: App {
     @StateObject private var storageManager = StorageManager.shared
     
     init() {
+        SettingsKey.registerDefaults()
         // XNNPACK reads its SME2 gate once, on first init inside the model load,
         // so set it before any view touches OnDeviceLLMService.shared.
         SME2Support.configureBeforeModelLoad()
