@@ -267,6 +267,15 @@ enum LaTeXAutoFixer {
             }
         }
 
+        // "unknown macro: \\leq" etc.: math written outside $...$. Put the math part of that line into math mode.
+        if issue.message.hasPrefix("unknown macro"), let lineNo = issue.line, lineNo >= 1, lineNo <= lines.count {
+            let idx = lineNo - 1
+            if let wrapped = wrapMathLine(lines[idx]), wrapped != lines[idx] {
+                lines[idx] = wrapped
+                return (lines.joined(separator: "\n"), "Put math on line \(lineNo) into math mode")
+            }
+        }
+
         // KaTeX render errors (from the validator) have no line: repair the display block with the snippet.
         if issue.message.hasPrefix("Math error:") {
             let (closed, count) = closeEnvironmentsInDisplayMath(latex)
@@ -343,6 +352,29 @@ enum LaTeXAutoFixer {
               !lines[start].contains("\\begin{document}") else { return nil }
         lines.removeSubrange(start...lastContent)
         return (lines.joined(separator: "\n"), "Removed an incomplete last block (output was cut off)")
+    }
+
+    /// Wraps a line's math in $...$: from the first math-looking character to the end, leaving a
+    /// leading word label ("Integral:") and a trailing \\\\ line break outside. Existing $...$ inside is
+    /// dropped so the math isn't nested. Returns nil for structural lines.
+    static func wrapMathLine(_ line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("\\begin"), !trimmed.hasPrefix("\\end"),
+              !trimmed.hasPrefix("\\section"), !trimmed.hasPrefix("\\item") else { return nil }
+        var body = trimmed.replacingOccurrences(of: "$", with: "")
+        var lineBreak = ""
+        if body.hasSuffix("\\\\") {
+            body = String(body.dropLast(2)).trimmingCharacters(in: .whitespaces)
+            lineBreak = " \\\\"
+        }
+        // Keep a leading run of plain words (a label like "Sum:") as text.
+        var label = ""
+        if let m = body.range(of: #"^([A-Za-z][A-Za-z ]*[:.]\s+)"#, options: .regularExpression) {
+            label = String(body[m])
+            body = String(body[m.upperBound...])
+        }
+        guard !body.isEmpty else { return nil }
+        return label + "$" + body + "$" + lineBreak
     }
 
     private static func match(_ text: String, _ pattern: String) -> (String, String)? {
