@@ -33,7 +33,7 @@
 
 ## Arm SME2
 
-The iPhone 16 Pro, 16 Pro Max and later (A18 Pro) and M4-class Macs and iPads have **SME2**, Arm's Scalable Matrix Extension 2, which can multiply matrices much faster than the older NEON instructions.
+Some newer Arm chips have **SME2**, Arm's Scalable Matrix Extension 2, which can multiply matrices much faster than the older NEON instructions. It was confirmed on the A18 Pro in the iPhone 16 Pro Max used here; the app asks the chip at launch whether it supports SME2 instead of going by model name, and falls back to NEON when it does not.
 
 The AI runtime this app uses (MediaPipe → XNNPACK → Arm KleidiAI) already contains SME2 kernels, but **ships with them switched off** on iOS. Img2LaTeX switches them on at launch when the chip supports SME2 (`Pic2PDF/SME2/`). There is a toggle in Settings, a label on the Generate screen that says which one is running, and a benchmark in the Analytics tab that measures both on your own phone.
 
@@ -74,7 +74,7 @@ XNNPACK saves repacked weights next to the model (`<model>.xnnpack_cache`). The 
 
 ## Build it
 
-Requirements: Xcode 16+, CocoaPods, an iPhone running iOS 17+ (an A18-class phone to see SME2).
+Requirements: Xcode 16+, CocoaPods, an iPhone running iOS 17+ (a phone with an SME2-capable chip, such as the A18 Pro, to see SME2).
 
 ```bash
 git clone https://github.com/younes-laaroussi/Pic2PDF.git
