@@ -1,0 +1,11 @@
+total 79083 ms
+     11308 ms  14.3%  .Linner_loop     -> _xnn_qd8_f32_qc8w_igemm_minmax_ukernel_4x16c4__asm_aarch64_neondot_ld128
+      5667 ms   7.2%  .Linner_loop     -> _xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_5x16c4__asm_aarch64_neondot_ld128_2
+      4634 ms   5.9%  .Linner_loop     -> _xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_1x16c4__asm_aarch64_neondot_ld128_2
+        63 ms   0.1%  .Linner_loop_end -> _xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_5x16c4__asm_aarch64_neondot_ld128_2
+        39 ms   0.0%  .Linner_loop_end -> _xnn_qd8_f32_qc8w_igemm_minmax_ukernel_4x16c4__asm_aarch64_neondot_ld128
+        20 ms   0.0%  .Louter_loop     -> _xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_1x16c4__asm_aarch64_neondot_ld128_2
+         9 ms   0.0%  .Louter_loop     -> _xnn_qd8_f32_qc8w_igemm_minmax_ukernel_4x16c4__asm_aarch64_neondot_ld128
+         3 ms   0.0%  .Lreturn         -> _xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_5x16c4__asm_aarch64_neondot_ld128_2
+         2 ms   0.0%  .Linner_loop_end -> _xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_1x16c4__asm_aarch64_neondot_ld128_2
+         1 ms   0.0%  .Lreturn         -> _xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_1x16c4__asm_aarch64_neondot_ld128_2

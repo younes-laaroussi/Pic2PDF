@@ -1,0 +1,31 @@
+{
+  "identity": "Gemma 3n E2B instruction-tuned, INT4 LiteRT/MediaPipe .task (google/gemma-3n-E2B-it-litert-preview lineage; distributed by the app from its own R2 bucket)",
+  "file": "gemma-3n-E2B-it-int4.task",
+  "source_url": "https://pub-69c747d5957f4104a2f87b0aca35a2af.r2.dev/gemma-3n-E2B-it-int4.task",
+  "bytes": 3136226711, "human": "2.92 GiB (3.14 GB)", "sha256": "a7f544cfee68f579fabadb22aa9284faa4020a0f5358d0e15b49fdd4cefe4200",
+  "remote_etag": "6589a1cfe1277e70f3763fe18290a8db-374", "remote_last_modified": "2025-10-30T20:08:59Z",
+  "container": "zip, all entries stored (uncompressed)",
+  "components": {
+    "TF_LITE_PREFILL_DECODE": {"bytes": 1588354336, "role": "LLM transformer (decode + prefill_128/272/1024 signatures)"},
+    "TF_LITE_PER_LAYER_EMBEDDER": {"bytes": 1101021144, "role": "Gemma 3n per-layer embeddings"},
+    "TF_LITE_EMBEDDER": {"bytes": 271586192, "role": "token embedder"},
+    "TF_LITE_VISION_ENCODER": {"bytes": 152736888, "role": "vision encoder (extracted to Application Support by the app)"},
+    "TF_LITE_VISION_ADAPTER": {"bytes": 17843836, "role": "vision->LLM adapter"},
+    "TOKENIZER_MODEL": {"bytes": 4683319, "role": "SentencePiece tokenizer"},
+    "METADATA": {"bytes": 56, "role": "prompt template (<ctrl99>user / <ctrl99>model)"}
+  },
+  "quantization_verified_from_flatbuffer": {
+    "method": "scripts/inspect_tflite.py (tflite schema bindings) over each TFLite component",
+    "llm_decode_subgraph": {"FULLY_CONNECTED_INT4_per_channel": {"tensors": 91, "bytes": 1023410176}, "FULLY_CONNECTED_INT8_per_channel": {"tensors": 227, "bytes": 373817344}, "FULLY_CONNECTED_FLOAT32_small": {"tensors": 150, "bytes": 1976160}},
+    "llm_prefill_subgraph": {"FULLY_CONNECTED_INT4_per_channel": {"tensors": 57, "bytes": 478150656}, "FULLY_CONNECTED_INT8_per_channel": {"tensors": 158, "bytes": 254541824}},
+    "vision_encoder": {"FULLY_CONNECTED_INT4_per_channel": {"tensors": 233, "bytes": 146022400}, "CONV_2D_INT8": 4, "DEPTHWISE_CONV_2D_INT8_per_tensor": 45},
+    "summary": "'int4' is mixed precision: INT4 per-channel for the large projections, INT8 per-channel for the rest; activations are quantized to int8 in-graph (QUANTIZE/DEQUANTIZE ops), which is why XNNPACK routes the INT4 FCs to the qs8_qc4w (static-quant) kernel config."
+  },
+  "on_device_footprint": {
+    "model_file": 3136226711,
+    "xnnpack_packed_weight_cache_baseline_bytes": 1408796840,
+    "xnnpack_packed_weight_cache_sme2_bytes": 1415701160,
+    "extracted_vision_components_bytes": 170580724,
+    "note": "The XNNPACK weight cache (<model>.xnnpack_cache) is written on first init; its layout depends on the selected kernels and it is NOT keyed by ISA — loading a NEON-built cache with SME2 enabled aborts (see README 'Failed experiments')."
+  }
+}

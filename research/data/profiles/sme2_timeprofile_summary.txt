@@ -1,0 +1,91 @@
+total sampled: 59665 ms
+
+== kernel-family buckets (sample contains frame matching) ==
+  other                  25555 ms   42.8%
+  neon/xnn-other         19877 ms   33.3%
+  sme2                   12795 ms   21.4%
+  dotprod                  950 ms    1.6%
+  i8mm                     488 ms    0.8%
+
+== top 40 leaf (self) frames ==
+      19709 ms  33.0%  .Linner_loop
+      10030 ms  16.8%  kai_run_rhs_pack_nxk_f32p2vlx1biasf32_f32_f32_sme
+       6224 ms  10.4%  kai_run_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa
+       3696 ms   6.2%  ml_drift::ToFloat32(ml_drift::FullyConnectedInt8Attributes const&)
+       3193 ms   5.4%  kai_run_matmul_clamp_qai8_qai8_qsi8cxp2vlx4sb_1x16vl_sme2_dot
+       3056 ms   5.1%  void ml_drift::RearrangeWeightsToOSpatialIOGroupITileOTile<(ml_drift::DataType)2, ml_drift::half>(ml_drift::Tensor<ml_dr
+       2759 ms   4.6%  kai_run_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot
+        987 ms   1.7%  start_wqthread
+        948 ms   1.6%  kai_run_matmul_clamp_f32_qai8dxp1x8_qsi8cxp4x8_1x4_neon_dotprod
+        863 ms   1.4%  kai_run_lhs_pack_f32p2vlx1_f32_sme
+        743 ms   1.2%  xnn_f32_vadd_ukernel__neon_u8
+        730 ms   1.2%  _platform_memmove
+        541 ms   0.9%  kai_run_matmul_clamp_qai8_qai8p2vlx4_qsi8cxpsb2vlx4_2vlx2vl_sme2_mopa
+        488 ms   0.8%  kai_run_matmul_clamp_f32_qai8dxp4x8_qsi8cxp4x8_16x4_neon_i8mm
+        412 ms   0.7%  xnn_f32_raddstoreexpminusmax_ukernel__neonfma_rr1_lut64_p2_u16_acc2
+        407 ms   0.7%  __workq_kernreturn
+        387 ms   0.6%  xnn_f32_vmul_ukernel__neon_u8
+        258 ms   0.4%  __bzero
+        210 ms   0.4%  std::__1::map<unsigned int, ml_drift::GraphFloat32::NodeDef, std::__1::less<unsigned int>, std::__1::allocator<std::__1:
+        207 ms   0.3%  thread_main
+        190 ms   0.3%  xnn_f32_vmulc_ukernel__neon_u8
+        177 ms   0.3%  tflite::tensor_utils::UnpackDenseInt4IntoInt8(signed char const*, int, signed char*)
+        167 ms   0.3%  __ulock_wait
+        140 ms   0.2%  _platform_memchr
+        127 ms   0.2%  xnn_f32_vapproxgelu_ukernel__neon_rational_12_10_div_u8
+        124 ms   0.2%  __ulock_wake
+        117 ms   0.2%  xnn_f32_rmax_ukernel__neon_u16_acc4
+        115 ms   0.2%  xnn_qs8_f32_vcvt_ukernel__neon_u32
+        110 ms   0.2%  xnn_f32_rsum_ukernel__neon_u16_acc4
+         74 ms   0.1%  .Linner_loop_end
+         73 ms   0.1%  iokit_user_client_trap
+         72 ms   0.1%  kai_run_matmul_clamp_f32_f32_f32p2vlx1b_1x16vl_sme2_mla
+         70 ms   0.1%  <deduplicated_symbol>
+         62 ms   0.1%  kai_run_rhs_pack_kxn_f32p2vlx1biasf32_f32_f32_sme
+         61 ms   0.1%  thread_parallelize_1d_tile_1d_dynamic
+         55 ms   0.1%  xnn_f32_vsubc_ukernel__neon_u8
+         55 ms   0.1%  _dispatch_root_queue_drain
+         54 ms   0.1%  _xzm_malloc_tc
+         51 ms   0.1%  xnn_f32_qs8_vcvt_ukernel__neonv8_u32
+         49 ms   0.1%  thread_parallelize_1d
+
+== SME2 / KleidiAI / XNN ukernel frames (self weight) ==
+      10030 ms  16.8%  kai_run_rhs_pack_nxk_f32p2vlx1biasf32_f32_f32_sme
+       6224 ms  10.4%  kai_run_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa
+       3193 ms   5.4%  kai_run_matmul_clamp_qai8_qai8_qsi8cxp2vlx4sb_1x16vl_sme2_dot
+       2759 ms   4.6%  kai_run_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot
+        948 ms   1.6%  kai_run_matmul_clamp_f32_qai8dxp1x8_qsi8cxp4x8_1x4_neon_dotprod
+        863 ms   1.4%  kai_run_lhs_pack_f32p2vlx1_f32_sme
+        743 ms   1.2%  xnn_f32_vadd_ukernel__neon_u8
+        541 ms   0.9%  kai_run_matmul_clamp_qai8_qai8p2vlx4_qsi8cxpsb2vlx4_2vlx2vl_sme2_mopa
+        488 ms   0.8%  kai_run_matmul_clamp_f32_qai8dxp4x8_qsi8cxp4x8_16x4_neon_i8mm
+        412 ms   0.7%  xnn_f32_raddstoreexpminusmax_ukernel__neonfma_rr1_lut64_p2_u16_acc2
+        387 ms   0.6%  xnn_f32_vmul_ukernel__neon_u8
+        190 ms   0.3%  xnn_f32_vmulc_ukernel__neon_u8
+        127 ms   0.2%  xnn_f32_vapproxgelu_ukernel__neon_rational_12_10_div_u8
+        117 ms   0.2%  xnn_f32_rmax_ukernel__neon_u16_acc4
+        115 ms   0.2%  xnn_qs8_f32_vcvt_ukernel__neon_u32
+        110 ms   0.2%  xnn_f32_rsum_ukernel__neon_u16_acc4
+         72 ms   0.1%  kai_run_matmul_clamp_f32_f32_f32p2vlx1b_1x16vl_sme2_mla
+         62 ms   0.1%  kai_run_rhs_pack_kxn_f32p2vlx1biasf32_f32_f32_sme
+         55 ms   0.1%  xnn_f32_vsubc_ukernel__neon_u8
+         51 ms   0.1%  xnn_f32_qs8_vcvt_ukernel__neonv8_u32
+         44 ms   0.1%  kai_run_lhs_quant_pack_qai8dxp_f32
+         29 ms   0.0%  xnn_f32_vsub_ukernel__neon_u8
+         12 ms   0.0%  kai_run_lhs_pack_x8p2vlx4_x8_sme
+         10 ms   0.0%  xnn_f32_vtanh_ukernel__neon_rational_9_8_div_u16
+          9 ms   0.0%  xnn_f32_vclamp_ukernel__neon_u16
+          8 ms   0.0%  xnn_x32_transposec_ukernel__4x4_aarch64_neon_tbl128
+          5 ms   0.0%  xnn_pack_kai_f32_weights_and_biases
+          3 ms   0.0%  xnn_xx_transposev_ukernel__1x1_scalar_memcpy
+          3 ms   0.0%  xnn_f32_vminc_ukernel__neon_u8
+          2 ms   0.0%  xnn_f32_vsin_ukernel__neon_rational_5_4_div_u16
+          2 ms   0.0%  kai_get_rhs_packed_stride_rhs_pack_kxn_f32p2vlx1biasf32_f32_f32_sme
+          2 ms   0.0%  xnn_x8_pack_lh_offset__neonsme2
+          1 ms   0.0%  xnn_f32_f16_vcvt_ukernel__neonfp16_u16
+          1 ms   0.0%  xnn_x32_pack_lh_size__neonsme2
+          1 ms   0.0%  xnn_x32_pack_lh_offset__neonsme2
+          1 ms   0.0%  xnn_pqs8_qc8w_gemm_minmax_ukernel_1x32c4__neonsme2
+          1 ms   0.0%  xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_5x16c4__asm_aarch64_neondot_ld128_2
+          1 ms   0.0%  xnn_pf32_gemm_minmax_ukernel_32x32__neonsme2
+          1 ms   0.0%  xnn_qs8_qc4w_gemm_minmax_fp32_ukernel_1x16c4__asm_aarch64_neondot_ld128_2

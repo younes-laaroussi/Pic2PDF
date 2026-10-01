@@ -1,6 +1,6 @@
 # Privacy Policy for Img2LaTeX
 
-**Last Updated: November 1, 2025**
+**Last Updated: October 1, 2026**
 
 ## Overview
 
@@ -39,14 +39,14 @@ All AI inference, image processing, LaTeX generation, and PDF rendering occur **
 
 1. **Images**: Processed locally using on-device AI models (Gemma 3N via MediaPipe)
 2. **LaTeX Code**: Generated on-device and stored only in your device's local storage
-3. **PDFs**: Rendered client-side using WKWebView and latex.js
+3. **PDFs**: Rendered client-side using WKWebView and latex.js (bundled inside the app, so the preview works offline)
 4. **History**: Saved locally using SwiftData (Apple's local database framework)
 
 ### Network Usage
 
 Img2LaTeX uses your internet connection **only** for:
 
-1. **Initial Model Download**: First-time download of AI models (~500MB-900MB) from Cloudflare R2
+1. **Initial Model Download**: First-time download of AI models (about 3.1 GB or 4.4 GB, depending on the model) from Cloudflare R2
    - Models are downloaded once and cached locally
    - No personal data is transmitted during download
    - Download URLs are public and do not track users
@@ -69,10 +69,11 @@ All app data is stored locally on your device using:
 
 ### What's Stored Locally
 
-- AI model files (downloaded once, ~500MB-900MB)
+- AI model files (downloaded once, about 3.1–4.4 GB)
 - Your generation history (images, LaTeX code, PDFs)
 - App settings and preferences
 - Favorited generations
+- Per-run diagnostics (timings, token counts, memory use, thermal state). These are kept in the app's local database, shown in the Stats screen, and only leave the device if you export them yourself
 
 ### Data Deletion
 
@@ -105,7 +106,8 @@ Img2LaTeX uses the following open-source libraries:
 
 - **MediaPipe Tasks GenAI** (Google): On-device AI inference
 - **ZIPFoundation**: Model file extraction
-- **latex.js** (Michael Bui): Client-side LaTeX rendering
+- **latex.js** (Michael Brade, MIT): Client-side LaTeX rendering, bundled in the app
+- **KaTeX** (MIT): Math typesetting used by latex.js
 
 These libraries run locally and do not transmit data.
 
@@ -206,5 +208,5 @@ For privacy questions or concerns:
 
 ---
 
-*This privacy policy is effective as of November 1, 2025.*
+*This privacy policy is effective as of October 1, 2026.*
 

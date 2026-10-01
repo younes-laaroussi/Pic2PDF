@@ -1,0 +1,25 @@
+
+### leaf matches /xnn_f32_gemm_minmax_ukernel_6x8/
+     14085 ms  73.7%  
+      3834 ms  20.1%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::PrefillInternal(tflite::impl::Signatur <- odml::infra::LlmLiteRTExecutor::Prefill(litert::lm::ExecutorInputs con
+      1065 ms   5.6%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::DecodeInternal(tflite::impl::Signature <- odml::infra::LlmLiteRTExecutor::Decode(litert::lm::ExecutorInputs cons
+       124 ms   0.6%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::Interpreter::Invoke() <- odml::infra::LiteRTVisionExecutor::Encode(litert::TensorBuffer const&) <- odml::infra::(anonymous namespace)::LlmVisionInferenceCalculator::Proc
+
+### leaf matches /x32_packw/
+      9393 ms  72.7%  
+      3395 ms  26.3%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::DecodeInternal(tflite::impl::Signature <- odml::infra::LlmLiteRTExecutor::Decode(litert::lm::ExecutorInputs cons
+       129 ms   1.0%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::PrefillInternal(tflite::impl::Signatur <- odml::infra::LlmLiteRTExecutor::Prefill(litert::lm::ExecutorInputs con
+         6 ms   0.0%  xnn_create_fully_connected_nc_f32 <- xnn_create_runtime_v4 <- tflite::xnnpack::(anonymous namespace)::SubgraphInit(TfLiteContext*, c <- tflite::Subgraph::AddNodeWithParameters(std::__1::vector<int, std::__1 <- tflite::Subgraph::ReplaceNodeSubsetsWithDelegateKernels(TfLiteRegistra <- tflite::Subgraph::ReplaceNodeSubsetsWithDelegateKernels(TfLiteContext*
+
+### leaf matches /^\.Linner_loop$/
+     16023 ms  74.1%  
+      3002 ms  13.9%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::DecodeInternal(tflite::impl::Signature <- odml::infra::LlmLiteRTExecutor::Decode(litert::lm::ExecutorInputs cons
+      2584 ms  12.0%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::PrefillInternal(tflite::impl::Signatur <- odml::infra::LlmLiteRTExecutor::Prefill(litert::lm::ExecutorInputs con
+
+### leaf matches /qsi4cxp8x8_1x8x32_neon_dotprod/
+      2095 ms  74.2%  
+       727 ms  25.8%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::DecodeInternal(tflite::impl::Signature <- odml::infra::LlmLiteRTExecutor::Decode(litert::lm::ExecutorInputs cons
+
+### leaf matches /qs8_qc8w_gemm_minmax_fp32_ukernel_1x16c8/
+      2728 ms  70.7%  
+      1133 ms  29.3%  tflite::xnnpack::(anonymous namespace)::SubgraphInvoke(TfLiteContext*, <- tflite::Subgraph::InvokeImpl() <- tflite::Subgraph::Invoke() <- tflite::impl::SignatureRunner::Invoke() <- odml::infra::LlmLiteRTExecutor::DecodeInternal(tflite::impl::Signature <- odml::infra::LlmLiteRTExecutor::Decode(litert::lm::ExecutorInputs cons

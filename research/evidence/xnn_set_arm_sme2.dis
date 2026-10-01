@@ -1,0 +1,17 @@
+/private/tmp/claude-501/-Users-mac-dev-Pic2PDF/5c98cbe2-59a8-44da-80f6-533300d57f7e/scratchpad/objs/set_arm_sme2.o:
+(__TEXT,__text) section
+_xnn_internal_set_arm_sme2:
+       0:	e8 03 00 aa	mov	x8, x0
+       4:	09 00 00 90	adrp	x9, _xnn_enable_arm_sme2_default@GOTPAGE
+       8:	29 01 40 f9	ldr	x9, [x9, _xnn_enable_arm_sme2_default@GOTPAGEOFF]
+       c:	20 01 40 b9	ldr	w0, [x9]
+      10:	40 00 f8 37	tbnz	w0, #0x1f, 0x18
+      14:	28 01 00 b9	str	w8, [x9]
+      18:	c0 03 5f d6	ret
+Relocation information (__TEXT,__text) 2 entries
+address  pcrel length extern type    scattered symbolnum/value
+00000008 False long   True   GOTLDPOFFalse     _xnn_enable_arm_sme2_default
+00000004 True  long   True   GOTLDP  False     _xnn_enable_arm_sme2_default
+Relocation information (__LD,__compact_unwind) 1 entries
+address  pcrel length extern type    scattered symbolnum/value
+00000000 False ?( 3)  False  UNSIGND False     1 (__TEXT,__text)

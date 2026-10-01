@@ -1,670 +1,129 @@
-# Img2Latex Whitepaper
+# Img2LaTeX
 
-**Stream multimodal AI inference on-device, with Arm SME2 on by default on A18/M4-class chips (time to first token down 41% on iPhone 16 Pro Max) and NEON everywhere else. Watch Gemma 3N vision models convert math to LaTeX in real-time. Zero cloud APIs. Pure ARM64.**
+**Photograph handwritten math, get LaTeX and a PDF. Everything runs on the phone: no server, no account, no network after the model download.**
 
-[![ARM64 Optimized](https://img.shields.io/badge/ARM64-Optimized-orange?style=flat-square&logo=arm)](https://www.arm.com/)
+[![Arm](https://img.shields.io/badge/Arm-SME2%20on%20by%20default-0091BD?style=flat-square&logo=arm&logoColor=white)](https://developer.arm.com/Architectures/Scalable%20Matrix%20Extension)
+[![On-device](https://img.shields.io/badge/100%25-on--device-6f42c1?style=flat-square)](#privacy)
+[![Model](https://img.shields.io/badge/Gemma%203n-E2B%20INT4-4285F4?style=flat-square)](https://huggingface.co/google/gemma-3n-E2B-it-litert-preview)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.24-blue?style=flat-square)](https://developers.google.com/mediapipe)
-[![KleidiAI](https://img.shields.io/badge/KleidiAI-via%20MediaPipe-green?style=flat-square)](https://www.arm.com/technologies/kleidi)
-[![SME2 On by Default](https://img.shields.io/badge/SME2-On%20by%20default-red?style=flat-square)](https://developer.arm.com/Architectures/Scalable%20Matrix%20Extension)
-[![On-Device](https://img.shields.io/badge/100%25-On--Device-purple?style=flat-square)]()
-[![INT4 Quantized](https://img.shields.io/badge/INT4-Quantized-yellow?style=flat-square)]()
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-**📱 [Download on the App Store](https://apps.apple.com/ca/app/img2latex/id6754800282)**
+[**Download on the App Store**](https://apps.apple.com/ca/app/img2latex/id6754800282) · [Research write-up](research/README.md) · [Privacy](PRIVACY.md)
 
-| [![Download on the App Store](https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83&releaseDate=1727568000)](https://apps.apple.com/ca/app/img2latex/id6754800282) |
-|:---:|
+![Preview, analytics and SME2 benchmark screens](docs/images/hero.png)
 
-![Architecture Diagram](./diagrams/ArchitectureDiagram.png)
+*Real screenshots from an iPhone 16 Pro Max. Left: a generated matrix, rendered offline. Middle: per-run analytics. Right: the built-in SME2 vs NEON benchmark.*
 
-Img2Latex converts handwritten math, lecture notes, and problem sets into professional PDFs—**100% on-device** with **ARM-optimized AI**. Built for the Arm AI Developer Challenge 2025, this app demonstrates production-grade multimodal LLM deployment with real-time performance monitoring on iOS.
+> Arm and the Arm logo are trademarks of Arm Limited. This is an independent project and is not endorsed by or affiliated with Arm.
 
-## Key Features
+## What it does
 
-- **100% On-Device Processing**: Zero cloud dependencies, all AI inference runs locally using MediaPipe Tasks GenAI
-- **Multimodal Vision AI**: Gemma 3N with vision encoder/adapter for image-to-LaTeX conversion
-- **ARM64 Optimizations**: Accelerate framework (vImage) for image preprocessing, INT4 quantized models
-- **ARM-optimized backends (via MediaPipe)**: MediaPipe integrates ARM kernels (KleidiAI/XNNPACK); **SME2 is enabled by default** on A18/M4-class devices, NEON elsewhere
-- **SME2 Indicator & Benchmark**: The Generate screen shows whether SME2 or NEON is running; Settings has an SME2 toggle, and the Analytics tab benchmarks both modes on your own phone
-- **Client-Side PDF Rendering**: WKWebView + latex.js for zero-dependency PDF generation
-- **Real-Time Metrics**: Live speed, memory, battery, and thermal monitoring during AI inference
-- **Native UI**: Built from stock SwiftUI components (lists, forms, toolbars, Swift Charts)
-- **Model Management**: Download and switch between Gemma 3N 2B and 4B models at runtime
-- **Persistent History**: SwiftData storage with search, favorites, and refinement tracking
-- **LaTeX Refinement**: Iterative improvements with user feedback and history
+1. Take or pick a photo of handwritten or printed math.
+2. A vision-language model ([Gemma 3n E2B](https://ai.google.dev/gemma/docs/gemma-3n), INT4) reads it on the phone and streams LaTeX as it goes.
+3. The LaTeX is checked, repaired if needed, and rendered to a PDF you can share.
 
----
+| Photo | | What the app produces |
+|---|---|---|
+| ![Handwritten integral and derivative](docs/images/examples/integral.jpg) | → | `\int_0^1 x^2\,dx = \left[\frac{x^3}{3}\right]_0^1 = \frac13`, `\frac{d}{dx}(\sin x\cdot e^x) = e^x(\sin x+\cos x)` |
+| ![Handwritten matrix](docs/images/examples/matrix.jpg) | → | A, det(A) and A⁻¹ as typeset matrices (see the preview in the picture above) |
+| ![Handwritten series](docs/images/examples/series.jpg) | → | The series and its sum, typeset |
+| ![Handwritten quadratic](docs/images/examples/quadratic.jpg) | → | The quadratic and its roots, typeset |
 
-## Technical Architecture
+![Generate screen](docs/images/screenshot-generate.png)
 
-### Overview
+## Arm SME2
 
-Img2Latex demonstrates ARM-optimized on-device AI for multimodal document understanding:
+The iPhone 16 Pro, 16 Pro Max and later (A18 Pro) and M4-class Macs and iPads have **SME2**, Arm's Scalable Matrix Extension 2, which can multiply matrices much faster than the older NEON instructions.
 
-**AI/ML Stack**:
-- **Gemma 3N (2B/4B)** [[1]](#references): INT4 quantized vision-language models running on device: the language model on the ARM CPU, part of the vision pipeline on the GPU via Metal
-- **MediaPipe Tasks GenAI 0.10.24** [[2]](#references): Inference runtime with integrated ARM backends (KleidiAI/XNNPACK)
-- **SME2 by Default**: KleidiAI's Scalable Matrix Extension 2 kernels in XNNPACK are switched on at launch on A18/M4-class devices (MediaPipe ships them disabled), with a Settings toggle and an in-app benchmark; older devices use NEON ([details](#sme2-results))
-- **Vision Pipeline**: Extracts TFLite vision encoder/adapter from `.task` files; processes up to 5 images per inference
+The AI runtime this app uses (MediaPipe → XNNPACK → Arm KleidiAI) already contains SME2 kernels, but **ships with them switched off** on iOS. Img2LaTeX switches them on at launch when the chip supports SME2 (`Pic2PDF/SME2/`). There is a toggle in Settings, a label on the Generate screen that says which one is running, and a benchmark in the Analytics tab that measures both on your own phone.
 
-**ARM64 Optimizations**:
-- **Accelerate Framework** [[3]](#references): vImage SIMD operations for parallel image downscaling (ARM NEON)
-- **INT4 Quantization**: 4-bit weights optimized for ARM integer pipelines 
-- **Thermal Management**: ProcessInfo monitoring with adaptive performance tuning
-- **CPU language model**: LLM prefill and decode run on KleidiAI [[4]](#references) matrix kernels: SME2 on A18/M4-class devices, NEON on older ones. MediaPipe runs part of the vision pipeline on the GPU through Metal (see [Testing in the simulator](#testing-in-the-simulator))
+### Measured on an iPhone 16 Pro Max
 
-**Architecture**: SwiftUI app with MediaPipe inference service, client-side PDF rendering (WKWebView + latex.js), and SwiftData persistence
+Same photo, same prompt, greedy decoding, 64 output tokens, 18 measured runs per setting, baseline and SME2 alternated across 6 separate processes each:
 
-### Core Technologies
+| | NEON (default MediaPipe) | SME2 | Change |
+|---|---|---|---|
+| Time to first token (median) | 5.02 s | 2.96 s | **−41 %** |
+| Decode speed (median) | 10.1 tok/s | 11.0 tok/s | +9.7 % |
+| Whole generate call (median) | 11.3 s | 8.7 s | **−23 %** |
+| Peak memory | 1841 MB | 1868 MB | +1.5 % |
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **AI Inference** | MediaPipe Tasks GenAI 0.10.24 [[2]](#references) | On-device LLM runtime (ARM-optimized via KleidiAI [[4]](#references)/XNNPACK; SME2 enabled by default on A18/M4-class devices, NEON otherwise) |
-| **Vision Processing** | Gemma 3N Vision Encoder/Adapter [[1]](#references) | Multimodal image understanding (extracted from .task files) |
-| **ARM Optimization** | Accelerate Framework (vImage) [[3]](#references) | SIMD-accelerated image downscaling |
-| **Model Format** | INT4 Quantized TFLite | 4-bit quantization for memory efficiency |
-| **PDF Rendering** | WKWebView + latex.js [[5]](#references) | Client-side LaTeX compilation to PDF |
-| **Data Persistence** | SwiftData | Type-safe local storage |
-| **UI Framework** | SwiftUI + Charts | Declarative UI with real-time performance visualization |
+![A/B headline chart](research/data/charts/ab_headline.png)
 
----
+What this means in plain terms:
 
-## Gemma 3N Integration
+- **The wait before text starts appearing drops by about 40 %.** That is the phase where the model reads the image and the prompt, which is large matrix work, and SME2 helps there.
+- **Writing the answer speeds up only a little.** Producing one token at a time is limited by how fast weights can be read from memory, not by arithmetic. Also, the INT4 weight layers in this model still run on NEON in this MediaPipe build; only the float and INT8 layers move to SME2.
+- **Caveats.** One phone, one model, one image. The phone was warm for most of the session (12 of 18 baseline and 14 of 18 SME2 runs started in the "serious" thermal state), so absolute speeds are lower than on a cool phone. Alternating the two settings keeps that from favouring either. Full method, raw data and scripts: [`research/`](research/README.md).
 
-### Selective Parameter Activation
+### The weight-cache trap
 
-Gemma 3N E2B and E4B models use selective parameter activation, achieving effective parameter counts of 2B and 4B while containing more total parameters. This technique reduces memory bandwidth and improves inference speed on mobile devices by activating only the necessary parameters for each token prediction.
+XNNPACK saves repacked weights next to the model (`<model>.xnnpack_cache`). The file is **not** tagged with the instruction set it was built for, so a cache built with NEON and loaded with SME2 (or the reverse) crashes with SIGABRT. The app records which mode built the cache, deletes it when the mode changes, and keeps a `.loading` marker so a crash during load cleans up after itself.
 
-### Multimodal Vision Support
+## How it works
 
-The Gemma 3N models include vision encoder and adapter components for multimodal input:
-
-1. **Vision Encoder**: TFLite model that processes images into embeddings (extracted from `.task` archive)
-2. **Vision Adapter**: Bridges vision embeddings to the language model's input space
-3. **Multi-Image Support**: Handles up to 5 images per generation for document conversion
-
-Our implementation extracts these components from the `.task` file using ZIPFoundation and configures MediaPipe's `LlmInference` with vision modality enabled:
-
-```swift
-options.visionEncoderPath = extractedVisionEncoderPath.path
-options.visionAdapterPath = extractedVisionAdapterPath.path
-options.maxImages = 5
-options.enableVisionModality = true
+```
+photo ──► resize (Accelerate/vImage) ──► Gemma 3n vision encoder ─┐
+                                                                  ├─► Gemma 3n E2B INT4 (CPU, XNNPACK/KleidiAI)
+prompt ───────────────────────────────────────────────────────────┘          │ streams tokens
+                                                                             ▼
+                      SwiftData ◄── PDF ◄── latex.js (offline, WKWebView) ◄── validate + auto-fix LaTeX
 ```
 
----
-
-## ARM64 Optimizations
-
-Img2Latex leverages ARM64-specific features throughout the pipeline for maximum performance and energy efficiency. MediaPipe integrates ARM-optimized backends (KleidiAI [[4]](#references)/XNNPACK). Its XNNPACK build ships KleidiAI's SME2 kernels but leaves them switched off, so Img2Latex switches them on at launch on A18/M4-class devices; older devices use NEON (see [SME2 Results](#sme2-results)).
-
-![MediaPipe Architecture](diagrams/out/4_mediapipe_architecture.svg)
-
-
-### 1. vImage Accelerated Downscaling
-
-Images are downscaled in parallel using the Accelerate framework's vImage API, which uses ARM NEON SIMD instructions:
-
-```swift
-private func downscaleCGImageAccelerate(_ src: CGImage, maxDimension: Int) -> CGImage? {
-    // ... format setup ...
-    
-    vImageScale_ARGB8888(&srcBuf, &dstBuf, nil, vImage_Flags(kvImageHighQualityResampling))
-    
-    return vImageCreateCGImageFromBuffer(&dstBuf, &format, nil, nil, vImage_Flags(kvImageNoAllocate), nil)?.takeRetainedValue()
-}
-```
-
-**Benefits**:
-- 30-70% size reduction before inference
-- Parallel processing via Swift TaskGroup (up to 10 images simultaneously)
-- SIMD-accelerated resampling (ARM NEON intrinsics)
-- Lower memory footprint during vision encoding
-
-*Note: Performance improvements enabled by KleidiAI integration through MediaPipe's XNNPACK backend [[4]](#references).*
-
-### 2. INT4 Quantization Pipeline
-
-Models are quantized to INT4 precision for deployment:
-- Weights stored as 4-bit integers
-- Dynamic dequantization during inference
-- ARM64 optimized INT8/INT4 matrix multiplication kernels in MediaPipe
-
-### 3. Performance Mode Tuning
-
-Adaptive parameters based on thermal state and user preference:
-
-| Parameter | Normal Mode | Performance Mode |
-|-----------|-------------|------------------|
-| Max Tokens | 2000 | 1200 |
-| Image Size | 768px | 512px |
-| Transcription Decoding | Greedy (Top K 1) | Greedy (Top K 1) |
-| Refinement Top K | 40 | ≥ 60 |
-| Refinement Top P | 0.90 | ≤ 0.95 |
-| Refinement Temperature | 0.7 | ≤ 0.6 |
-
-Transcription always uses greedy decoding, so the same photo gives the same LaTeX; the sampling settings in Settings apply to refinement. 768px is the vision encoder's largest native input size.
-
-### 4. Thermal Management
-
-Real-time thermal monitoring with adaptive behavior:
-
-```swift
-NotificationCenter.default.addObserver(
-    forName: ProcessInfo.thermalStateDidChangeNotification, 
-    object: nil, 
-    queue: .main
-) { [weak self] _ in
-    self?.thermalState = ProcessInfo.processInfo.thermalState
-}
-```
-
-Thermal states: `.nominal`, `.fair`, `.serious`, `.critical` → UI displays warnings and suggests enabling performance mode.
-
----
-
-## SME2 Results
-
-MediaPipe Tasks GenAI 0.10.24 statically links an XNNPACK build that contains KleidiAI's SME2 kernels but keeps them behind a flag that is off by default. Img2Latex sets that flag at launch, before the model loads, when the CPU reports `FEAT_SME2` (A18/M4 and later) and the **Arm SME2** setting (Settings → Acceleration) is on (the default). XNNPACK reads the flag once per process, so changing the setting takes effect after a restart, and the first launch in the new mode rebuilds XNNPACK's weight cache (about 8 s, once). The Generate screen ("On-device · SME2" under the Generate button) and the Analytics tab show which path is running.
-
-Measured on an iPhone 16 Pro Max (A18 Pro, iOS 27.0) with Gemma 3N E2B, 18 NEON vs 18 SME2 interleaved runs, 64 output tokens:
-
-| Metric | NEON | SME2 | Change |
-|--------|------|------|--------|
-| Time to first token | 5.02 s | 2.96 s | −41% |
-| Image to last token | 11.28 s | 8.67 s | −23% |
-| Decode speed | 10.1 tok/s | 11.0 tok/s | +10% |
-| Memory (after load / peak) | ~1.5 GB / ~1.85 GB | ~1.5 GB / ~1.85 GB | unchanged |
-| Model load (warm cache) | ~3.1 s | ~3.1 s | unchanged |
-
-To compare on your own phone: **Analytics → Run SME2 benchmark**, then turn SME2 off in Settings, restart, and run it again. The benchmark uses a bundled sample image, the normal prompt and greedy decoding (1 warm-up + 3 measured runs); results stay on the device.
-
----
-
-
-## Testing in the simulator
-
-Everything except image understanding works in the iOS Simulator on an Apple-silicon Mac (whose CPU also has SME2): model loading, the SME2 / NEON switch, the weight-cache reset, the Settings toggle, and the UI. **Image transcription does not.** In the simulator the model receives an all-black image, so it answers from the prompt alone.
-
-What was measured (2026-09-30, MediaPipe Tasks GenAI 0.10.24, iPhone 17 Pro simulator on an M4 Mac):
-
-| Check | Result |
-| --- | --- |
-| Solid red / solid blue image, "what color is this?" | "Black" for both (text-only control: "Blue") |
-| MediaPipe's own `SkCopyPixelsFromCGImage`, called directly | Correct pixels (red reads as red) |
-| Same image and harness on an iPhone 16 Pro Max | Transcribes the image correctly |
-| `preferred_backend = CPU` through the C API | Still "Black" |
-| Stack sample during image encoding | `LiteRTVisionExecutor::Encode` → `ml_drift::metal::BHWCBufferToTensorConverter::Encode` → the simulator's Metal layer (`MTLSerializer`, `MTLSimDriver`) |
-
-So the pixels are correct until MediaPipe hands them to its vision pipeline, which runs partly on Metal even when the language model runs on the CPU. An Instruments trace on the iPhone shows the same structure: MediaPipe creates two vision runners, `LlmVisionInferenceRunnerGpu` (ML Drift on Metal, running on the real Apple GPU driver, `AGX`) and `LlmVisionInferenceRunnerXnnpack` (CPU). The code path is the same on both; only the GPU driver underneath differs, and under the simulator's Metal translation layer the result is an all-zero image. MediaPipe exposes no setting that moves this step off Metal. Test image transcription on a device.
-
-## Image-to-PDF Pipeline
-
-![Multimodal Inference Flow](diagrams/out/2_multimodal_inference_flow.svg)
-
-### End-to-End Flow
-
-1. **Image Input**: PhotosPicker or Camera capture (up to 10 images)
-2. **Preprocessing**: Parallel vImage downscaling (768px max dimension, 512px in Performance Mode)
-3. **Vision Encoding**: TFLite vision encoder extracts image embeddings
-4. **Vision Adaptation**: Adapter projects embeddings to LLM input space
-5. **Gemma 3N Inference**: INT4 quantized model generates LaTeX (streaming, 30fps UI updates)
-6. **LaTeX Extraction**: Strip markdown formatting, validate structure
-7. **PDF Rendering**: WKWebView loads latex.js CDN, compiles LaTeX client-side
-8. **Storage**: SwiftData saves images, LaTeX, PDF data, and metadata
-
-### Streaming Inference
-
-Real-time token generation with throttled UI updates:
-
-```swift
-for try await chunk in stream {
-    fullResponse += chunk
-    
-    let now = Date()
-    if now.timeIntervalSince(lastUIUpdate) >= (1.0 / 30.0) {
-        await MainActor.run {
-            streamingLaTeX = fullResponse
-            currentTokensPerSecond = estimatedTokens / elapsedTime
-        }
-        lastUIUpdate = now
-    }
-}
-```
-
-**Benefits**:
-- User sees progress immediately during streaming
-- 30fps UI updates prevent main thread saturation
-- Real-time metrics displayed during generation
-
----
-
-## Key Components
-
-### OnDeviceLLMService
-
-The core service managing Gemma 3N inference, implemented as a singleton with `@MainActor` isolation.
-
-**Responsibilities**:
-- Model initialization and lifecycle management
-- Image preprocessing with vImage (parallel TaskGroup)
-- Streaming LaTeX generation with 30fps UI updates
-- Performance metrics collection (generation time, tokens/sec, memory, battery)
-- Model switching (2B ↔ 4B) at runtime
-- Real-time system monitoring (memory, battery, thermal state)
-
-**Key Methods**:
-```swift
-func generateLaTeX(from images: [UIImage], 
-                   additionalPrompt: String?, 
-                   status: GenerationStatus) async throws -> String
-
-func refineLaTeX(currentLaTeX: String, 
-                 userFeedback: String, 
-                 status: GenerationStatus) async throws -> String
-
-func switchModel(to modelIdentifier: GemmaModelIdentifier) async
-```
-
-**Performance Tracking**:
-- `GenerationMetrics`: Captures timestamp, tokens, generation time, memory, battery impact
-- Historical metrics (last 50 generations) for analytics
-- Live metrics updated every 1 second via Timer
-
-### LaTeXWebView
-
-WKWebView-based preview using latex.js CDN for client-side rendering and PDF export.
-
-**Features**:
-- Strips unsupported LaTeX packages (tikz, graphicx, geometry, fancyhdr)
-- Injects HTML with latex.js CDN and LaTeX source
-- **Share PDF** exports the rendered page with `WKWebView.createPDF()`
-
-**Supported LaTeX**:
-- `\documentclass{article}`, `\usepackage{amsmath}`, `\usepackage{amssymb}`
-- Math environments: `\[ \]`, `$ $`, `equation`, `align`, `gather`
-- Text formatting: `\textbf{}`, `\textit{}`, `\underline{}`
-- Lists: `itemize`, `enumerate`
-
-**Limitations** (due to latex.js):
-- No `tikz` or graphics imports
-- No custom page geometry or headers/footers
-- No complex table environments
-
-### ModelDownloadManager
-
-Manages downloading, storage, and deletion of Gemma models from Cloudflare R2.
-
-**Features**:
-- Progress tracking with `URLSessionDownloadDelegate`
-- Resume support for interrupted downloads
-- Local storage in Documents directory
-- Model size reporting and validation
-
-**Model Configuration** (`ModelConfig.swift`):
-```swift
-static let availableModels: [GemmaModelIdentifier: DownloadableModelConfig] = [
-    .gemma2B: DownloadableModelConfig(
-        identifier: .gemma2B,
-        downloadURL: URL(string: "https://r2-url/gemma-3n-E2B-it-int4.task")!,
-        expectedSizeMB: 500.0
-    ),
-    .gemma4B: DownloadableModelConfig(
-        identifier: .gemma4B,
-        downloadURL: URL(string: "https://r2-url/gemma-3n-E4B-it-int4.task")!,
-        expectedSizeMB: 900.0
-    )
-]
-```
-
-### StorageManager
-
-SwiftData-based persistence layer for generation history and refinements.
-
-**Models**:
-- `Generation`: Stores images, LaTeX, PDF data, timestamp, title, favorites, refinement history
-- `RefinementEntry`: Tracks user feedback and previous LaTeX for each refinement iteration
-
-**Key Methods**:
-```swift
-func saveGeneration(images: [UIImage], latex: String, pdfDocument: PDFDocument?, title: String?)
-func loadGenerations(searchTerm: String?, favoritesOnly: Bool) -> [Generation]
-func addRefinement(to generation: Generation, feedback: String, previousLaTeX: String, newLaTeX: String)
-func getStatistics() -> StorageStatistics
-func searchGenerations(query: String) -> [Generation]
-```
-
-**Storage Statistics**:
-- Total generations count
-- Total storage size (images + PDFs)
-- Average generation time
-- Favorite count
-
-### StatsView
-
-Real-time and historical performance analytics UI using Charts framework.
-
-A `List` of `LabeledContent` rows and Swift Charts:
-
-- **This Session**: generations, average time and speed, tokens generated, peak memory
-- **Charts**: generation time and tokens/second over the last 20 generations
-- **Now**: resident memory (via `ProcessMetrics`), thermal state, battery level
-- **Model & System**: model, load time, acceleration (SME2 / NEON), CPU SME2 support, device, iOS version
-- **SME2 Benchmark**: SME2 vs NEON on this device (see [SME2 Results](#sme2-results))
-
----
-
-## Performance Monitoring
-
-![Memory & Thermal Management](diagrams/out/3_memory_thermal_management.svg)
-
-### Metrics Collection
-
-**Timer-Based Polling** (1-second intervals):
-```swift
-metricsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-    Task { @MainActor in
-        self?.updateRealTimeMetrics()
-    }
-}
-```
-
-**Tracked Metrics**:
-- **Memory**: Resident memory in MB via `task_info(TASK_VM_INFO)`
-- **Battery**: `UIDevice.current.batteryLevel` with change notifications
-- **Thermal**: `ProcessInfo.processInfo.thermalState` with change notifications
-
-**Instruments Integration**:
-```swift
-os_signpost(.begin, log: signpostLog, name: "ModelInit")
-os_signpost(.event, log: signpostLog, name: "FirstToken")
-os_signpost(.end, log: signpostLog, name: "PreprocessImages")
-```
-
-Use Xcode Instruments to profile generation latency, memory pressure, and energy impact.
-
-### Historical Aggregation
-
-Generation metrics are stored for the last 50 generations:
-
-```swift
-struct GenerationMetrics: Identifiable {
-    let timestamp: Date
-    let modelIdentifier: GemmaModelIdentifier
-    let inputImageCount: Int
-    let outputTokenCount: Int
-    let generationTime: TimeInterval
-    let tokensPerSecond: Double
-    let memoryUsageMB: Double
-    let batteryLevelBefore: Int
-    let batteryLevelAfter: Int
-    let thermalState: ProcessInfo.ThermalState
-}
-```
-
-Aggregate statistics computed on-demand:
-- Average generation time
-- Average tokens/second
-- Peak memory usage
-- Total tokens generated
-
----
-
-## Data Flow
-
-![INT4 Quantization Impact](diagrams/out/5_int4_quantization_impact.svg)
-
-### Path 1: Image → LaTeX → PDF → Storage
-
-1. User selects images via PhotosPicker or Camera
-2. `OnDeviceLLMService.generateLaTeX()` processes images
-3. LaTeX string returned and displayed in preview
-4. `StorageManager.saveGeneration()` saves the images and LaTeX to history
-5. `LaTeXWebView` renders the LaTeX with latex.js
-6. **Share PDF** exports the rendered page with `WKWebView.createPDF()`
-
-### Path 2: Refinement Flow
-
-1. User provides feedback text (e.g., "Fix equation 3", "Add more detail")
-2. `OnDeviceLLMService.refineLaTeX()` performs text-only inference
-3. New LaTeX returned and displayed
-4. `StorageManager.addRefinement()` creates `RefinementEntry` linked to `Generation`
-5. Previous LaTeX and feedback stored for history
-
-### Path 3: Model Download → Extraction → Initialization
-
-1. User taps download in SettingsView
-2. `ModelDownloadManager.downloadModel()` fetches from R2
-3. `.task` file saved to Documents directory
-4. On initialization, `OnDeviceGemmaModel` extracts vision components using ZIPFoundation
-5. `TF_LITE_VISION_ENCODER` and `TF_LITE_VISION_ADAPTER` extracted to cache
-6. MediaPipe `LlmInference` configured with all model paths
-
-### Path 4: History Access
-
-1. User navigates to HistoryView
-2. `StorageManager.loadGenerations()` queries SwiftData
-3. Optional search/filter applied
-4. Results sorted by timestamp (descending)
-5. Tapping a generation shows detail view with LaTeX, PDF preview, refinement history
-
----
-
-## Setup Instructions
-
-### Prerequisites
-
-- **macOS**: Sonoma (14.0) or later
-- **Xcode**: 15.0 or later
-- **iOS Target**: 17.0 or later (iPhone/iPad with A12 Bionic or newer recommended)
-- **Physical device for image tests**: the iOS Simulator can't be used to check transcription quality (see [Testing in the simulator](#testing-in-the-simulator))
-- **CocoaPods**: Installed via `sudo gem install cocoapods`
-
-### Installation
+- **Inference:** MediaPipe Tasks GenAI 0.10.24 (`OnDeviceLLMService.swift`). The language model runs on the CPU; part of the vision pipeline runs on the GPU through Metal.
+- **Output cleanup** (`Pic2PDF/LaTeX/`): small models sometimes loop or stop mid-sentence. `LaTeXAutoFixer` collapses runaway repetition, drops a truncated tail, closes open environments and wraps stray math in `$…$`. `LaTeXValidator` checks the result with latex.js and KaTeX before it is shown.
+- **Rendering:** [latex.js](https://latex.js.org) is bundled in the app (`LatexJS.bundle`) and served to a `WKWebView` through a custom URL scheme, so previews work in Airplane Mode.
+- **Diagnostics** (`Pic2PDF/Diagnostics/`): every run records timings, token counts, peak memory, thermal state and which fixes were applied. They stay on the phone, show up in Analytics, and can be exported as JSON or CSV.
+- **Storage:** SwiftData history with search and favourites.
+
+## Build it
+
+Requirements: Xcode 16+, CocoaPods, an iPhone running iOS 17+ (an A18-class phone to see SME2).
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/youneslaaroussi/Pic2PDF.git
+git clone https://github.com/younes-laaroussi/Pic2PDF.git
 cd Pic2PDF
-
-# 2. Install dependencies
 pod install
-
-# 3. Open the workspace (not the .xcodeproj)
 open Pic2PDF.xcworkspace
 ```
 
-### Model Download
+The model is not in the repository. Either download it inside the app (Settings → Models), or fetch `gemma-3n-E2B-it-int4.task` (about 3.1 GB) from [Hugging Face](https://huggingface.co/google/gemma-3n-E2B-it-litert-preview) and copy it to the app's `Documents/Models/` folder. The built-in download URLs in `ModelConfig.swift` are placeholders; point them at your own host if you want the in-app downloader.
 
-You have two options for obtaining the Gemma 3N models:
+### The iOS Simulator
 
-#### Option 1: In-App Downloader (Recommended)
+The app builds and runs in the Simulator, but **transcription does not work there**: the MediaPipe vision path copies the image through Metal, and under the Simulator that copy produces an all-black image, so the model sees nothing. Use a real iPhone for anything involving photos. The preview, history, analytics and LaTeX auto-fixer all work in the Simulator.
 
-1. Build and run the app
-2. Navigate to **Settings** tab
-3. Tap **Download** next to Gemma 3N 2B or 4B
-4. Wait for download to complete
-5. Model is automatically initialized after download
-
-#### Option 2: Manual Download
-
-Download pre-converted models from HuggingFace [[1]](#references):
-
-- **Gemma 3N 2B (INT4)**: [google/gemma-3n-E2B-it-litert-preview](https://huggingface.co/google/gemma-3n-E2B-it-litert-preview/tree/main)
-- **Gemma 3N 4B (INT4)**: [google/gemma-3n-E4B-it-litert-preview](https://huggingface.co/google/gemma-3n-E4B-it-litert-preview/tree/main)
-
-Download the `.task` file and either:
-- Place in app bundle (add to Xcode project)
-- Copy to Documents directory: `~/Library/Developer/CoreSimulator/Devices/<UUID>/data/Containers/Data/Application/<UUID>/Documents/models/`
-
-### Building and Running
-
-1. Select target device or simulator (iOS 17.0+)
-2. Build the project: `Cmd+B`
-3. Run: `Cmd+R`
-4. Wait for model initialization (first launch takes ~5-10 seconds)
-5. Select photos and tap **Generate** to test
-
-### Troubleshooting
-
-**Model not found error**:
-- Ensure you've downloaded a model via the in-app downloader
-- Check Settings tab for model status
-- Look for `.task` files in Documents/models/ directory
-
-**Slow inference**:
-- On A18/M4-class devices, check that the Generate screen says **On-device · SME2** (Settings → Arm SME2)
-- The first launch after changing the SME2 setting rebuilds the model cache (about 8 s, once)
-- Enable Performance Mode in Settings
-- Use Gemma 2B instead of 4B for faster inference
-- Ensure device is not thermally throttled (thermal state shown in Analytics)
-
-**PDF rendering fails**:
-- Check that LaTeX uses only supported packages
-- Inspect LaTeX output for unsupported commands (tikz, graphicx, etc.)
-- Try simplifying the LaTeX code
-
----
-
-## Dependencies
-
-Managed via CocoaPods (see `Podfile`):
-
-```ruby
-platform :ios, '17.0'
-
-target 'Img2Latex' do
-  use_frameworks!
-
-  # MediaPipe for on-device AI inference
-  pod 'MediaPipeTasksGenAI', '0.10.24'
-  pod 'MediaPipeTasksGenAIC', '0.10.24'
-
-  # ZIPFoundation for extracting vision models from .task files
-  pod 'ZIPFoundation', '~> 0.9'
-end
-```
-
-**Dependency Details**:
-
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| MediaPipeTasksGenAI | 0.10.24 | Swift API for LLM inference (ARM-optimized backends via KleidiAI [[4]](#references)/XNNPACK; SME2 kernels enabled by the app on A18/M4-class devices) |
-| MediaPipeTasksGenAIC | 0.10.24 | C implementation (required by GenAI) |
-| ZIPFoundation | ~> 0.9 | Extract vision encoder/adapter from .task archives |
-
----
-
-## Project Structure
+## Repository layout
 
 ```
-Img2Latex/
-├── Img2LatexApp.swift                   # App entry point, manages AppState and StorageManager
-├── AppState.swift                     # Onboarding state singleton
-├── ContentView.swift                  # Main TabView with Generate/History/Analytics/Settings
-│
-├── OnDeviceLLMService.swift           # Core LLM inference service (Gemma 3N)
-├── ModelDownloadManager.swift         # R2 model downloads with progress tracking
-├── StorageManager.swift               # SwiftData persistence layer
-├── ProcessMetrics.swift               # System metrics utilities
-│
-├── Generation.swift                   # SwiftData models (Generation, RefinementEntry)
-├── GenerationStatus.swift             # Published state for generation progress
-├── ModelConfig.swift                  # Downloadable model configuration (R2 URLs)
-│
-├── OnboardingView.swift               # Welcome screen with model download
-├── SettingsView.swift                 # Settings UI (performance mode, model management)
-├── StatsView.swift                    # Analytics UI with Charts framework
-├── HistoryView.swift                  # Generation history with search and favorites
-├── LaTeXPreviewWithActionsView.swift  # LaTeX editor with refinement and PDF export
-├── LaTeXWebView.swift                 # latex.js rendering and PDF export
-│
-├── SME2/
-│   ├── xnn_sme2.c                     # C shim: FEAT_SME2 check, XNNPACK SME2 flag, active-mode readback
-│   ├── SME2Support.swift              # SME2 on/off decision, set before the model loads
-│   ├── SME2Benchmark.swift            # Benchmark runner and stored results
-│   ├── BenchmarkView.swift            # SME2 vs NEON benchmark screen (Analytics tab)
-│   └── sme2_benchmark_sample.jpg      # Fixed benchmark input
-│
-└── Podfile                            # CocoaPods dependency specification
+Pic2PDF/                 App source
+  SME2/                  SME2 switch, C shim into XNNPACK, in-app benchmark
+  LaTeX/                 Validator, auto-fixer, sanitizer, latex.js asset loader
+  Diagnostics/           Per-run diagnostics model and views
+  LatexJS.bundle/        latex.js 0.12.6 (MIT) for offline rendering
+research/                SME2 investigation: method, raw data, scripts, evidence
+docs/images/             Screenshots used in this README
+PRIVACY.md
 ```
 
----
+## Limitations
 
-## Performance Benchmarks
+- Accuracy depends on handwriting and on a small 2-billion-parameter model; always read the result before relying on it. Long pages and dense tables are the weakest cases.
+- MediaPipe 0.10.24 cannot cancel a generation in progress.
+- The first model load builds a weight cache and takes noticeably longer than later loads.
+- SME2 measurements are from one device. Other SME2 chips are expected to behave similarly but have not been measured.
 
-Benchmarks depend on device (chip, thermal state) and input complexity. The quickest comparison is the in-app SME2 benchmark (see [SME2 Results](#sme2-results)). For deeper profiling on your hardware:
+## Privacy
 
-1. Build a Release configuration
-2. Enable signposts (already in code: ModelInit, FirstToken, PreprocessImages)
-3. Profile with Xcode Instruments: Points of Interest + Allocations + Energy Log
-4. Record:
-   - Model initialization time
-   - Time to first token and tokens/second (estimated in UI)
-   - Peak resident memory (shown in Analytics)
-   - Battery delta per generation
+No accounts, no analytics, no uploads. Photos, LaTeX and diagnostics stay on the phone; the only network use is the one-time model download. See [PRIVACY.md](PRIVACY.md).
 
----
+## Acknowledgements
 
-## Future Enhancements
-
-- **LoRA Support**: Fine-tuned models for specific document types (lecture notes, problem sets, diagrams)
-- **Batch Processing**: Process multiple document sets in sequence
-- **OCR Fallback**: Hybrid approach with Vision framework for non-handwritten text
-- **Export Formats**: Markdown, HTML, DOCX alongside PDF
-- **iCloud Sync**: Automatic backup of generation history
-- **Shortcuts Integration**: Generate PDFs from Shortcuts app
-- **Document Scanner**: Built-in multi-page scanning with perspective correction
-
----
+- [Gemma 3n](https://ai.google.dev/gemma) by Google, used under the Gemma terms of use.
+- [MediaPipe](https://developers.google.com/mediapipe), [XNNPACK](https://github.com/google/XNNPACK) and Arm's [KleidiAI](https://gitlab.arm.com/kleidi/kleidiai).
+- [latex.js](https://github.com/michael-brade/LaTeX.js) (MIT) and [KaTeX](https://katex.org) (MIT), including its fonts, and the Computer Modern fonts.
+- [ZIPFoundation](https://github.com/weichsel/ZIPFoundation).
 
 ## License
 
-[MIT License](./LICENSE)
-
----
-
-## Acknowledgments
-
-- **Google MediaPipe Team**: For the incredible MediaPipe Tasks GenAI framework and pre-converted Gemma 3N models
-- **Google Gemma Team**: For open-sourcing the Gemma model family with vision capabilities
-- **Arm**: For hosting the AI Developer Challenge 2025 and promoting on-device AI innovation
-- **Michael Bui (latex.js)**: For the client-side LaTeX compiler that powers PDF rendering
-
----
-
-## Technical Support
-
-For issues, questions, or contributions:
-- GitHub Issues: https://github.com/youneslaaroussi/Pic2PDF/issues
-
----
-
-**Built with ❤️ for the [Arm AI Developer Challenge 2025](https://arm-ai-developer-challenge.devpost.com/)**
-
----
-
-**📱 [Download on the App Store](https://apps.apple.com/ca/app/img2latex/id6754800282)**
-
-| [![Download on the App Store](https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83&releaseDate=1727568000)](https://apps.apple.com/ca/app/img2latex/id6754800282) |
-|:---:|
-
----
-
-## References
-
-1. **Gemma 3N Models** - Google DeepMind's multimodal vision-language models  
-   https://huggingface.co/google/gemma-3n-E2B
-
-2. **MediaPipe Tasks GenAI** - Google AI Edge's on-device inference framework  
-   https://ai.google.dev/edge/mediapipe/framework/getting_started/ios
-
-3. **Apple Accelerate Framework** - High-performance vector and matrix operations  
-   https://developer.apple.com/documentation/accelerate
-
-4. **KleidiAI** - Arm's optimized micro-kernels for AI workloads on ARM CPUs  
-   GitHub: https://github.com/ARM-software/kleidiai  
-   Integration Announcement: https://newsroom.arm.com/blog/kleidiai-integration-mediapipe
-
-5. **LaTeX.js** - Client-side LaTeX to HTML compiler  
-   https://latex.js.org/usage.html#library
-
+MIT, see [LICENSE](LICENSE). Third-party components keep their own licenses.

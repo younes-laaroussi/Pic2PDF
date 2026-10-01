@@ -1,0 +1,36 @@
+{
+  "host": {
+    "macos": "27.0 (26A5416b)", "model": "Mac16,13 (Apple M4, 10 cores, 32 GB)",
+    "xcode": "27.0 (27A266a)", "swift": "6.4 (swiftlang-6.4.0.33.1)", "clang": "Apple clang 21.0.0 (clang-2100.3.33.1)",
+    "cocoapods": "1.16.2", "cmake": "4.2.1", "python": "3.13.7",
+    "host_cpu_features_for_reference": {"FEAT_SME": 1, "FEAT_SME2": 1, "FEAT_I8MM": 1, "FEAT_DotProd": 1, "sme_max_svl_b": 64}
+  },
+  "device": {
+    "name": "iPhone 16 Pro Max", "product_type": "iPhone17,2", "hardware_model": "D94AP", "soc": "Apple A18 Pro",
+    "udid": "<device-udid>", "os": "iOS 27.0 (24A5380h, beta)", "arch": "arm64e", "developer_mode": "enabled",
+    "transport": "USB (wired), charging during runs (UIDevice.batteryState=2)", "low_power_mode": false,
+    "cpu": {"hw.ncpu": 6, "perflevel0.physicalcpu": 2, "perflevel1.physicalcpu": 4},
+    "cpu_features_sysctl_on_device": {
+      "hw.optional.arm.FEAT_DotProd": 1, "hw.optional.arm.FEAT_I8MM": 1, "hw.optional.arm.FEAT_BF16": 1, "hw.optional.arm.FEAT_FP16": 1,
+      "hw.optional.arm.FEAT_SME": 1, "hw.optional.arm.FEAT_SME2": 1, "hw.optional.arm.FEAT_SME2p1": 0,
+      "hw.optional.arm.SME_I8I32": 1, "hw.optional.arm.SME_F32F32": 1, "hw.optional.arm.sme_max_svl_b": 64,
+      "hw.optional.arm.FEAT_SVE": "key absent (-1)"
+    },
+    "evidence": "raw/smoke/smoke_base.log (env record), read via sysctlbyname from inside the benchmark process"
+  },
+  "app": {
+    "repo": "Pic2PDF (Img2LaTeX)", "bundle_id": "com.deepshotinc.Pic2PDF", "base_commit": "26653e9d71f09884b5f9c5852c76816dbe0b633a",
+    "branch": "research/arm-sme2-benchmark", "build_configuration": "Release (SWIFT_OPTIMIZATION_LEVEL=-O, whole-module)",
+    "deployment_target": "iOS 17.6", "app_binary_sha256": "475883023a9e74164f6f80f85ab0cef03e8da8077b5899be70e2f7aaa630be1a",
+    "note": "ONE binary is used for both A and B; the configuration is selected per process by the BENCH_SME2 environment variable, which calls xnn_internal_set_arm_sme2(1) before the first XNNPACK initialization."
+  },
+  "runtime": {
+    "mediapipe_tasks_genai": "0.10.24 (CocoaPods MediaPipeTasksGenAI + MediaPipeTasksGenAIC)",
+    "genaic_binary": "MediaPipeTasksGenAIC.xcframework/ios-arm64: a static archive (ar) of 3044 Mach-O objects, 57,745,000 bytes, statically linked into the app",
+    "inference_stack": "Swift LlmInference -> MediaPipe llm_inference_engine -> odml::infra::LlmLiteRTExecutor (LiteRT-LM) -> TFLite/LiteRT interpreter + XNNPACK delegate -> XNNPACK ukernels / KleidiAI micro-kernels",
+    "xnnpack_snapshot": "between google/XNNPACK commits 8a396b78d1 (2025-06-12, 'Disable ARM SME2 support by default': xnn_enable_arm_sme2_default=0) and 001e5b57d2 (2025-06-23, removed xnn_internal_set_arm_sme2). Evidence: binary contains xnn_enable_arm_sme2_default in __common (zero) and xnn_internal_set_arm_sme2 with the tbnz-lock semantics of that window.",
+    "kleidiai": "present (1903 kai_* symbols in the archive; version string not embedded). Families: neon_dotprod, neon_i8mm, sme (packing), sme2_mopa, sme2_sdot, sme2_dot, sme2_mla.",
+    "tflite_runtime_version_string": "unknown (no version string embedded); litert::lm namespaces present",
+    "cpu_feature_detection": "cpuinfo (cpuinfo_arm_mach_init) via sysctlbyname hw.optional.arm.FEAT_* — see analysis/cpuinfo_arm_mach_init.dis"
+  }
+}
