@@ -37,6 +37,8 @@ The iPhone 16 Pro, 16 Pro Max and later (A18 Pro) and M4-class Macs and iPads ha
 
 The AI runtime this app uses (MediaPipe → XNNPACK → Arm KleidiAI) already contains SME2 kernels, but **ships with them switched off** on iOS. Img2LaTeX switches them on at launch when the chip supports SME2 (`Pic2PDF/SME2/`). There is a toggle in Settings, a label on the Generate screen that says which one is running, and a benchmark in the Analytics tab that measures both on your own phone.
 
+![How the SME2 switch works](docs/images/diagram-sme2.svg)
+
 ### Measured on an iPhone 16 Pro Max
 
 Same photo, same prompt, greedy decoding, 64 output tokens, 18 measured runs per setting, baseline and SME2 alternated across 6 separate processes each:
@@ -62,13 +64,7 @@ XNNPACK saves repacked weights next to the model (`<model>.xnnpack_cache`). The 
 
 ## How it works
 
-```
-photo ──► resize (Accelerate/vImage) ──► Gemma 3n vision encoder ─┐
-                                                                  ├─► Gemma 3n E2B INT4 (CPU, XNNPACK/KleidiAI)
-prompt ───────────────────────────────────────────────────────────┘          │ streams tokens
-                                                                             ▼
-                      SwiftData ◄── PDF ◄── latex.js (offline, WKWebView) ◄── validate + auto-fix LaTeX
-```
+![How a photo becomes a PDF](docs/images/diagram-pipeline.svg)
 
 - **Inference:** MediaPipe Tasks GenAI 0.10.24 (`OnDeviceLLMService.swift`). The language model runs on the CPU; part of the vision pipeline runs on the GPU through Metal.
 - **Output cleanup** (`Pic2PDF/LaTeX/`): small models sometimes loop or stop mid-sentence. `LaTeXAutoFixer` collapses runaway repetition, drops a truncated tail, closes open environments and wraps stray math in `$…$`. `LaTeXValidator` checks the result with latex.js and KaTeX before it is shown.
