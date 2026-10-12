@@ -93,13 +93,13 @@ Pick **My Mac (Designed for iPad)** as the run destination. The app runs nativel
 
 On a Mac, use **Choose Files** to pick images from Finder. The camera button only appears on devices with a camera.
 
-A quick check on an M4 MacBook Air (32 GB) with the in-app benchmark: one warm-up and 3 measured runs per setting, medians, app in front. It's a smaller sample than the iPhone study above.
+A smaller check on an M4 MacBook Air (32 GB) with the in-app benchmark: 9 measured runs per setting from 3 processes each, alternating the settings, answers running to their natural end (118 to 130 tokens), other apps open. Medians. It's noisier than the iPhone study above (NEON's time to first token ranged from 4.2 to 8.9 s).
 
 | | NEON | SME2 | Change |
 |---|---|---|---|
-| Time to first token | 8.48 s | 3.67 s | **−57 %** |
-| Decode speed | 8.5 tok/s | 9.2 tok/s | +8 % |
-| Whole generate call | 22.5 s | 16.7 s | **−26 %** |
+| Time to first token | 6.21 s | 3.48 s | **−44 %** |
+| Decode speed | 8.2 tok/s | 10.2 tok/s | +25 % |
+| Whole generate call | 21.8 s | 15.9 s | **−27 %** |
 
 ### The model
 
