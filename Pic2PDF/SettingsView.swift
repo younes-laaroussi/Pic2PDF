@@ -31,6 +31,7 @@ struct SettingsView: View {
 
     @State private var showClearDataAlert = false
     @State private var downloadingModel: ModelIdentifier?
+    @State private var downloadError: String?
 
     var body: some View {
         NavigationStack {
@@ -122,7 +123,12 @@ struct SettingsView: View {
                 } header: {
                     Text("AI Model")
                 } footer: {
-                    Text("Models are downloaded once and stay on this device.")
+                    if let downloadError = downloadError {
+                        Text(downloadError)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Models are downloaded once and stay on this device.")
+                    }
                 }
 
                 Section("Storage") {
@@ -215,6 +221,13 @@ struct SettingsView: View {
             } currentValueLabel: {
                 Text(progress, format: .percent.precision(.fractionLength(0)))
             }
+        } else if downloadingModel == model, downloadManager.downloadStatus == .verifying {
+            LabeledContent(model.displayName) {
+                HStack(spacing: 6) {
+                    ProgressView()
+                    Text("Checking…")
+                }
+            }
         } else {
             LabeledContent(model.displayName) {
                 Button("Download") {
@@ -239,12 +252,16 @@ struct SettingsView: View {
 
     private func download(_ model: ModelIdentifier) {
         downloadingModel = model
+        downloadError = nil
         Task {
             do {
                 try await downloadManager.downloadModel(model)
                 await llmService.loadModelIfNeeded(model)
+            } catch is CancellationError {
+                // Cancelled; nothing to report.
             } catch {
                 print("[Settings] Failed to download model: \(error)")
+                downloadError = error.localizedDescription
             }
             downloadingModel = nil
         }

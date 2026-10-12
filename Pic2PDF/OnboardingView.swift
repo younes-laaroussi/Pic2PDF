@@ -130,7 +130,7 @@ struct OnboardingView: View {
     }
 
     private var modelDescription: String {
-        let size = DownloadableModelConfig.availableModels[selectedModel].map { formatBytes(Int64($0.expectedSizeMB * 1024 * 1024)) } ?? ""
+        let size = DownloadableModelConfig.availableModels[selectedModel].map { formatBytes($0.sizeBytes) } ?? ""
         switch selectedModel {
         case .gemma2B:
             return "\(size) download. Faster; good for most notes."
@@ -144,6 +144,8 @@ struct OnboardingView: View {
         Task {
             do {
                 try await downloadManager.downloadModel(selectedModel)
+            } catch is CancellationError {
+                // Cancelled from the Cancel button.
             } catch {
                 downloadError = error.localizedDescription
             }
