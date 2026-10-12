@@ -40,7 +40,7 @@ struct StatsView: View {
                 Section("Now") {
                     LabeledContent("Memory", value: String(format: "%.0f MB", ProcessMetrics.currentFootprintMB()))
                     LabeledContent("Thermal state", value: ProcessMetrics.thermalStateDescription(llmService.thermalState))
-                    LabeledContent("Battery", value: "\(llmService.batteryLevel)%")
+                    LabeledContent("Battery", value: llmService.batteryLevel >= 0 ? "\(llmService.batteryLevel)%" : "–")
                 }
 
                 Section("Model & System") {
@@ -48,8 +48,8 @@ struct StatsView: View {
                     LabeledContent("Load time", value: String(format: "%.1f s", llmService.modelInitializationTime))
                     LabeledContent("Acceleration", value: llmService.accelerationMode?.displayName ?? (llmService.isInitialized ? "Unknown" : "Not loaded"))
                     LabeledContent("CPU supports SME2", value: SME2Support.isSupported ? "Yes" : "No")
-                    LabeledContent("Device", value: SME2Benchmark.deviceModelIdentifier())
-                    LabeledContent("iOS", value: UIDevice.current.systemVersion)
+                    LabeledContent("Device", value: DeviceInfo.modelIdentifier())
+                    LabeledContent(DeviceInfo.osName, value: UIDevice.current.systemVersion)
                 }
 
                 Section {

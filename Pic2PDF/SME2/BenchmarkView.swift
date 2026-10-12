@@ -114,7 +114,7 @@ struct BenchmarkView: View {
     /// Where and when each result was measured.
     private func details(for results: [SME2BenchmarkResult]) -> String {
         var lines = results.map { result in
-            "\(result.mode.displayName): \(result.deviceModel), iOS \(result.systemVersion), \(result.modelName), \(result.date.formatted(date: .abbreviated, time: .shortened))"
+            "\(result.mode.displayName): \(result.deviceModel), \(result.systemName ?? "iOS") \(result.systemVersion), \(result.modelName), \(result.date.formatted(date: .abbreviated, time: .shortened))"
         }
         if Set(results.map { $0.modelName }).count > 1 {
             lines.append("These results used different models. Run both modes again with the same model to compare.")

@@ -77,6 +77,10 @@ struct LaTeXWebView: UIViewRepresentable {
                 <meta charset=\"UTF-8\">
                 <style>
                   body { margin: 12px; background: #fff; }
+                  /* latex.js sets a 10pt page size; use a larger one on iPad and Mac windows.
+                     html:root outranks the :root rule latex.js injects after this. */
+                  @media (min-width: 640px) { html:root { --size: 13pt; } }
+                  @media (min-width: 900px) { html:root { --size: 16pt; } }
                 </style>
                 <script src=\"\(LaTeXJSAssets.baseURL.absoluteString)latex.js\"></script>
               </head>

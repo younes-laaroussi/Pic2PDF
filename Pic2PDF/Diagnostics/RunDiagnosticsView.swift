@@ -61,7 +61,7 @@ struct RunDiagnosticsSections: View {
             LabeledContent("Acceleration", value: run.acceleration)
             LabeledContent("Model", value: run.modelName)
             LabeledContent("Device", value: run.deviceModel)
-            LabeledContent("iOS", value: run.osVersion)
+            LabeledContent("OS", value: run.osVersion)
             LabeledContent("App", value: run.appVersion)
         }
 

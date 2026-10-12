@@ -28,6 +28,8 @@ struct SME2BenchmarkResult: Codable {
     let mode: SME2Support.Mode
     let date: Date
     let deviceModel: String
+    /// "iOS", "iPadOS" or "macOS". nil in results saved before the Mac build (those were iOS).
+    let systemName: String?
     let systemVersion: String
     let modelName: String
     let measuredRuns: Int
@@ -65,7 +67,8 @@ enum SME2Benchmark {
         return SME2BenchmarkResult(
             mode: mode,
             date: Date(),
-            deviceModel: deviceModelIdentifier(),
+            deviceModel: DeviceInfo.modelIdentifier(),
+            systemName: DeviceInfo.osName,
             systemVersion: UIDevice.current.systemVersion,
             modelName: modelName,
             measuredRuns: runs.count,
@@ -83,20 +86,6 @@ enum SME2Benchmark {
         guard !sorted.isEmpty else { return 0 }
         let middle = sorted.count / 2
         return sorted.count % 2 == 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
-    }
-
-    /// Hardware model identifier, e.g. "iPhone17,2" (UIDevice.model only says "iPhone").
-    static func deviceModelIdentifier() -> String {
-        // In the simulator uname reports the Mac's architecture; the simulated model is in the environment.
-        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] {
-            return simulated + " (Simulator)"
-        }
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let identifier = withUnsafeBytes(of: &systemInfo.machine) { buffer in
-            String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
-        }
-        return identifier.isEmpty ? UIDevice.current.model : identifier
     }
 
     // MARK: - Storage

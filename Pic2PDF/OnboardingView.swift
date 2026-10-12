@@ -22,16 +22,18 @@ struct OnboardingView: View {
 
                 VStack(alignment: .leading, spacing: 24) {
                     feature("doc.text.viewfinder", title: "Photos to LaTeX", text: "Turn handwritten math and notes into LaTeX and PDF.")
-                    feature("lock.shield", title: "Private", text: "The AI runs on your iPhone. Your photos never leave it.")
+                    feature("lock.shield", title: "Private", text: "The AI runs on this device. Your photos never leave it.")
                     feature("cpu", title: "Built for Arm", text: "Uses SME2 on A18 and M4-class chips, and NEON on older ones.")
                     feature("wand.and.stars", title: "Refine and Share", text: "Ask for changes, then share the result as a PDF.")
                 }
 
                 modelSection
             }
+            // A readable column on iPad and Mac.
+            .frame(maxWidth: 600, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .bottom) {
             Button {
@@ -44,7 +46,9 @@ struct OnboardingView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .frame(maxWidth: 600)
             .padding()
+            .frame(maxWidth: .infinity)
             .background(.bar)
         }
     }

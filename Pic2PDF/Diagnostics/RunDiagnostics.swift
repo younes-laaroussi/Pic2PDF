@@ -60,7 +60,7 @@ final class RunDiagnostics {
         self.kind = kind
         modelName = ""
         acceleration = "Unknown"
-        deviceModel = SME2Benchmark.deviceModelIdentifier()
+        deviceModel = DeviceInfo.modelIdentifier()
         osVersion = UIDevice.current.systemVersion
         appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")
             + " (" + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?") + ")"

@@ -9,6 +9,7 @@ import SwiftUI
 import PhotosUI
 import PDFKit
 import Combine
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var mainGenerationViewModel = MainGenerationViewModel()
@@ -80,11 +81,13 @@ struct MainGenerationView: View {
     @State private var errorMessage: String?
     @State private var refinementFeedback = ""
     @State private var showCamera = false
+    @State private var showFileImporter = false
     @State private var showEditorView = false
 
     @StateObject private var onDeviceLLMService = OnDeviceLLMService.shared
 
     @EnvironmentObject var storageManager: StorageManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var isCameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
@@ -117,6 +120,11 @@ struct MainGenerationView: View {
                         }
                         PhotosPicker(selection: $selectedItems, maxSelectionCount: 10, matching: .images) {
                             Label("Choose Photos", systemImage: "photo.on.rectangle")
+                        }
+                        Button {
+                            showFileImporter = true
+                        } label: {
+                            Label("Choose Files", systemImage: "folder")
                         }
                     }
                 }
@@ -151,6 +159,17 @@ struct MainGenerationView: View {
                     await loadImages(from: newItems)
                 }
             }
+            // Images from Files (or Finder on a Mac) are added to the current selection, like camera photos.
+            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
+                guard case .success(let urls) = result else { return }
+                for url in urls {
+                    let accessing = url.startAccessingSecurityScopedResource()
+                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                    if let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
+                        selectedImages.append(image)
+                    }
+                }
+            }
         }
     }
 
@@ -170,12 +189,17 @@ struct MainGenerationView: View {
                     showCamera = true
                 }
             }
+
+            Button("Choose Files") {
+                showFileImporter = true
+            }
         }
     }
 
     private var imageGrid: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 12)], spacing: 12) {
+            // Bigger thumbnails on iPad and Mac.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 220 : 100), spacing: 12)], spacing: 12) {
                 ForEach(selectedImages.indices, id: \.self) { index in
                     Color.clear
                         .aspectRatio(3.0 / 4.0, contentMode: .fit)
@@ -230,6 +254,7 @@ struct MainGenerationView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: 560)
         .padding()
         .frame(maxWidth: .infinity)
         .background(.bar)
