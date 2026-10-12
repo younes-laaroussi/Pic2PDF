@@ -1,6 +1,6 @@
 # Img2LaTeX
 
-**Photograph handwritten math, get LaTeX and a PDF. Everything runs on the phone: no server, no account, no network after the model download.**
+**Photograph handwritten math, get LaTeX and a PDF. Everything runs on the device (iPhone, iPad or Mac): no server, no account, no network after the model download.**
 
 [![Arm](https://img.shields.io/badge/Arm-SME2%20on%20by%20default-0091BD?style=flat-square&logo=arm&logoColor=white)](https://developer.arm.com/Architectures/Scalable%20Matrix%20Extension)
 [![On-device](https://img.shields.io/badge/100%25-on--device-6f42c1?style=flat-square)](#privacy)
@@ -33,9 +33,11 @@
 
 ## Arm SME2
 
-Some newer Arm chips have **SME2**, Arm's Scalable Matrix Extension 2, which can multiply matrices much faster than the older NEON instructions. It was confirmed on the A18 Pro in the iPhone 16 Pro Max used here; the app asks the chip at launch whether it supports SME2 instead of going by model name, and falls back to NEON when it does not.
+Some newer Arm chips have **SME2**, Arm's Scalable Matrix Extension 2, which can multiply matrices much faster than the older NEON instructions. It was confirmed on the A18 Pro in the iPhone 16 Pro Max used here and on an M4 MacBook Air; the app asks the chip at launch whether it supports SME2 instead of going by model name, and falls back to NEON when it does not.
 
-The AI runtime this app uses (MediaPipe → XNNPACK → Arm KleidiAI) already contains SME2 kernels, but **ships with them switched off** on iOS. Img2LaTeX switches them on at launch when the chip supports SME2 (`Pic2PDF/SME2/`). There is a toggle in Settings, a label on the Generate screen that says which one is running, and a benchmark in the Analytics tab that measures both on your own phone.
+The AI runtime this app uses (MediaPipe → XNNPACK → Arm KleidiAI) already contains SME2 kernels, but **ships with them switched off** on iOS. Img2LaTeX switches them on at launch when the chip supports SME2 (`Pic2PDF/SME2/`). Settings has the only switch. The Generate screen shows what XNNPACK actually chose, and when that's NEON it says why: "SME2 not available" or "SME2 off in Settings". A benchmark in the Analytics tab measures both on your own device.
+
+"Supported" means the CPU reports `FEAT_SME2` **and** the OS lets apps run SME instructions (`hw.optional.arm.sme_max_svl_b` > 0). Some iOS versions report SME2 on A18-class chips but trap SME instructions in apps ([pytorch/cpuinfo#432](https://github.com/pytorch/cpuinfo/issues/432)). On those, the app uses NEON and Settings explains why.
 
 ![How the SME2 switch works](docs/images/diagram-sme2.svg)
 
@@ -74,7 +76,7 @@ XNNPACK saves repacked weights next to the model (`<model>.xnnpack_cache`). The 
 
 ## Build it
 
-Requirements: Xcode 16+, CocoaPods, an iPhone running iOS 17+ (a phone with an SME2-capable chip, such as the A18 Pro, to see SME2).
+Requirements: Xcode 26 or newer and CocoaPods. Run it on an iPhone or iPad with iOS 17+, or on an Apple silicon Mac. To see SME2 you need an A18 / M4 or newer chip.
 
 ```bash
 git clone https://github.com/younes-laaroussi/Pic2PDF.git
@@ -83,11 +85,31 @@ pod install
 open Pic2PDF.xcworkspace
 ```
 
-The model is not in the repository. Either download it inside the app (Settings → Models), or fetch `gemma-3n-E2B-it-int4.task` (about 3.1 GB) from [Hugging Face](https://huggingface.co/google/gemma-3n-E2B-it-litert-preview) and copy it to the app's `Documents/Models/` folder. The built-in download URLs in `ModelConfig.swift` are placeholders; point them at your own host if you want the in-app downloader.
+In Xcode, select the **Pic2PDF** target → **Signing & Capabilities**, choose your own team, and change the bundle identifier to one of your own (for example `com.yourname.img2latex`). Then pick a run destination and press Run.
+
+### On a Mac
+
+Pick **My Mac (Designed for iPad)** as the run destination. The app runs natively on Apple silicon in a resizable window. It uses the same code, the same MediaPipe build and the same SME2 switch as on iPhone. On M4 and newer Macs, macOS lets apps use SME2, so the Generate screen shows **On-device · SME2**.
+
+On a Mac, use **Choose Files** to pick images from Finder. The camera button only appears on devices with a camera.
+
+A quick check on an M4 MacBook Air (32 GB) with the in-app benchmark: one warm-up and 3 measured runs per setting, medians, app in front. It's a smaller sample than the iPhone study above.
+
+| | NEON | SME2 | Change |
+|---|---|---|---|
+| Time to first token | 8.48 s | 3.67 s | **−57 %** |
+| Decode speed | 8.5 tok/s | 9.2 tok/s | +8 % |
+| Whole generate call | 22.5 s | 16.7 s | **−26 %** |
+
+### The model
+
+The model isn't in the repository. The app downloads it on first use (welcome screen, or Settings → AI Model): `gemma-3n-E2B-it-int4.task`, about 3.1 GB. It downloads from Cloudflare R2 and keeps the file only if its SHA-256 matches. The file is an unmodified copy of Google's [LiteRT release](https://huggingface.co/google/gemma-3n-E2B-it-litert-preview). The mirror list and checksums are in `ModelDownloadManager.swift`.
+
+If your network blocks the download, the app says so. Download the file on another network and copy it into the app's `Documents/Models/` folder. On a Mac that's `~/Library/Containers/<bundle identifier>/Data/Documents/Models/`.
 
 ### The iOS Simulator
 
-The app builds and runs in the Simulator, but **transcription does not work there**: the MediaPipe vision path copies the image through Metal, and under the Simulator that copy produces an all-black image, so the model sees nothing. Use a real iPhone for anything involving photos. The preview, history, analytics and LaTeX auto-fixer all work in the Simulator.
+The app builds and runs in the Simulator, but **transcription does not work there**. The MediaPipe vision path copies the image through Metal, and under the Simulator that copy produces an all-black image, so the model sees nothing. To try it on a computer, use **My Mac (Designed for iPad)** instead. The preview, history, analytics and LaTeX auto-fixer all work in the Simulator.
 
 ## Repository layout
 
@@ -107,7 +129,7 @@ PRIVACY.md
 - Accuracy depends on handwriting and on a small 2-billion-parameter model; always read the result before relying on it. Long pages and dense tables are the weakest cases.
 - MediaPipe 0.10.24 cannot cancel a generation in progress.
 - The first model load builds a weight cache and takes noticeably longer than later loads.
-- SME2 measurements are from one device. Other SME2 chips are expected to behave similarly but have not been measured.
+- The SME2 study is from one iPhone, plus a short check on one M4 Mac. Other SME2 chips are expected to behave similarly but have not been measured.
 
 ## Privacy
 
