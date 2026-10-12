@@ -13,18 +13,19 @@
 extern void xnn_internal_set_arm_sme2(int value);
 extern const void* xnn_init_hardware_config(void);
 
-// 1 if the CPU reports FEAT_SME2 AND the OS lets user code run SME instructions, else 0.
+// 1 if the CPU reports FEAT_SME2 AND the OS lets user code run SME instructions,
+// 2 if the CPU reports FEAT_SME2 but the OS doesn't, 0 if the CPU has no SME2.
 // Some iOS versions report FEAT_SME2 = 1 on A18-class chips but trap SME instructions
 // in user mode (SIGILL); on those, hw.optional.arm.sme_max_svl_b is 0 (see
 // https://github.com/pytorch/cpuinfo/issues/432). Require a nonzero vector length.
-int pic2pdf_cpu_has_sme2(void) {
+int pic2pdf_sme2_availability(void) {
   int v = 0;
   size_t len = sizeof(v);
   if (sysctlbyname("hw.optional.arm.FEAT_SME2", &v, &len, NULL, 0) != 0 || v == 0) return 0;
   int svl = 0;
   len = sizeof(svl);
-  if (sysctlbyname("hw.optional.arm.sme_max_svl_b", &svl, &len, NULL, 0) != 0) return 0;
-  return svl > 0;
+  if (sysctlbyname("hw.optional.arm.sme_max_svl_b", &svl, &len, NULL, 0) != 0 || svl <= 0) return 2;
+  return 1;
 }
 
 // Must be called before any model is loaded. Later calls are ignored by XNNPACK.

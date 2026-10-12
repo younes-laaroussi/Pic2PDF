@@ -47,7 +47,7 @@ struct StatsView: View {
                     LabeledContent("Model", value: llmService.currentModelInfo.isInitialized ? llmService.currentModelInfo.identifier.displayName : "Not loaded")
                     LabeledContent("Load time", value: String(format: "%.1f s", llmService.modelInitializationTime))
                     LabeledContent("Acceleration", value: llmService.accelerationMode?.displayName ?? (llmService.isInitialized ? "Unknown" : "Not loaded"))
-                    LabeledContent("CPU supports SME2", value: SME2Support.isSupported ? "Yes" : "No")
+                    LabeledContent("SME2 available", value: SME2Support.availabilityDescription)
                     LabeledContent("Device", value: DeviceInfo.modelIdentifier())
                     LabeledContent(DeviceInfo.osName, value: UIDevice.current.systemVersion)
                 }

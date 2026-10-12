@@ -24,7 +24,7 @@ struct BenchmarkView: View {
         List {
             Section {
                 LabeledContent("Running on", value: llmService.accelerationMode?.displayName ?? (llmService.isInitialized ? "Unknown" : "Not loaded"))
-                LabeledContent("CPU supports SME2", value: SME2Support.isSupported ? "Yes" : "No")
+                LabeledContent("SME2 available", value: SME2Support.availabilityDescription)
 
                 Button(action: runBenchmark) {
                     if isBusy {

@@ -9,7 +9,7 @@
 import Foundation
 
 // C shim in xnn_sme2.c (no bridging header, so bind the symbols directly).
-@_silgen_name("pic2pdf_cpu_has_sme2") private func c_cpu_has_sme2() -> Int32
+@_silgen_name("pic2pdf_sme2_availability") private func c_sme2_availability() -> Int32
 @_silgen_name("pic2pdf_xnn_set_sme2") private func c_xnn_set_sme2(_ enabled: Int32)
 @_silgen_name("pic2pdf_xnn_sme2_active") private func c_xnn_sme2_active() -> Int32
 
@@ -37,15 +37,39 @@ enum SME2Support {
 
     // MARK: - Support and preference
 
-    /// True if the CPU reports FEAT_SME2 (A18 / M4 and later), unless a debug override forces it off.
-    /// Read once per process, like XNNPACK's own decision.
-    static let isSupported: Bool = {
+    enum Availability {
+        /// The CPU has SME2 and the OS lets apps use it.
+        case available
+        /// The CPU has no SME2 (older than A18 / M4).
+        case noHardware
+        /// The CPU has SME2 but the OS traps SME instructions in apps (some iOS versions on A18 / A19).
+        case blockedByOS
+    }
+
+    /// Whether this device can run SME2, read once per process like XNNPACK's own decision.
+    /// A debug override can force `.noHardware`.
+    static let availability: Availability = {
         if isForcedOff {
             NSLog("[SME2] Forcing unsupported (debug override)")
-            return false
+            return .noHardware
         }
-        return c_cpu_has_sme2() == 1
+        switch c_sme2_availability() {
+        case 1: return .available
+        case 2: return .blockedByOS
+        default: return .noHardware
+        }
     }()
+
+    static var isSupported: Bool { availability == .available }
+
+    /// "Yes", "No" or "Blocked by iOS", for the Analytics and benchmark screens.
+    static var availabilityDescription: String {
+        switch availability {
+        case .available: return "Yes"
+        case .noHardware: return "No"
+        case .blockedByOS: return "Blocked by \(DeviceInfo.osName)"
+        }
+    }
 
     private static var isForcedOff: Bool {
         if ProcessInfo.processInfo.environment[forceNoSME2EnvironmentKey] == "1" {
@@ -94,7 +118,7 @@ enum SME2Support {
         let mode = requestedMode
         requestedModeAtLaunch = mode
         c_xnn_set_sme2(mode == .sme2 ? 1 : 0)
-        NSLog("[SME2] supported=\(isSupported) enabled=\(sme2Enabled) -> requesting \(mode.displayName)")
+        NSLog("[SME2] availability=\(availability) enabled=\(sme2Enabled) -> requesting \(mode.displayName)")
     }
 
     /// Reads what XNNPACK decided. Call only after a model has loaded (this initializes XNNPACK).
@@ -120,5 +144,36 @@ enum SME2Support {
     static var needsRestart: Bool {
         guard isConfigured else { return false }
         return requestedMode != requestedModeAtLaunch
+    }
+
+    // MARK: - What the UI shows
+
+    /// The mode the model is running on, and why it differs from what Settings asks for.
+    struct Status: Equatable {
+        let mode: Mode
+        /// "SME2 not available", "SME2 off in Settings" or "restart to use …"; nil when the model runs on SME2 as set.
+        let note: String?
+
+        /// One line for the Generate screen, e.g. "On-device · NEON · SME2 not available".
+        var summary: String {
+            ["On-device", mode.displayName, note].compactMap { $0 }.joined(separator: " · ")
+        }
+    }
+
+    /// Settings and the Generate screen both show this, so they always agree.
+    /// The mode is what XNNPACK actually chose, not the toggle. nil until a model has loaded.
+    static var status: Status? {
+        guard let active = activeMode else { return nil }
+        if needsRestart {
+            return Status(mode: active, note: "restart to use \(requestedMode.displayName)")
+        }
+        if active == .sme2 {
+            return Status(mode: .sme2, note: nil)
+        }
+        // NEON: either SME2 was asked for and isn't available, or it's switched off.
+        if availability == .available && requestedModeAtLaunch == .neon {
+            return Status(mode: .neon, note: "SME2 off in Settings")
+        }
+        return Status(mode: .neon, note: "SME2 not available")
     }
 }

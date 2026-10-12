@@ -35,12 +35,13 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // SME2 is chosen once per launch (XNNPACK locks it on first model load), so changes need a restart.
+                // The only place to change SME2. It is chosen once per launch (XNNPACK locks it on first
+                // model load), so changes need a restart; the Generate screen shows the same status.
                 Section {
                     Toggle("Arm SME2", isOn: SME2Support.isSupported ? $sme2Enabled : Binding.constant(false))
                         .disabled(!SME2Support.isSupported)
-                    if let mode = llmService.accelerationMode {
-                        LabeledContent("Running on", value: mode.displayName)
+                    if llmService.accelerationMode != nil, let status = SME2Support.status {
+                        LabeledContent("Running on", value: status.mode.displayName)
                     }
                 } header: {
                     Text("Acceleration")
@@ -187,13 +188,17 @@ struct SettingsView: View {
     }
 
     private var sme2Footer: String {
-        if !SME2Support.isSupported {
-            return "Not supported on this device (needs A18 / M4 or newer)."
+        switch SME2Support.availability {
+        case .noHardware:
+            return "This device's CPU doesn't have SME2, so the model runs on NEON. SME2 needs an A18, M4 or newer chip."
+        case .blockedByOS:
+            return "This CPU has SME2, but this version of \(DeviceInfo.osName) doesn't let apps use it, so the model runs on NEON."
+        case .available:
+            if SME2Support.needsRestart {
+                return "Restart Img2Latex to switch to \(SME2Support.requestedMode.displayName)."
+            }
+            return "Runs the language model on the CPU's SME2 matrix units. Turn off to use NEON."
         }
-        if SME2Support.needsRestart {
-            return "Restart Img2Latex to apply."
-        }
-        return "Runs the language model on the CPU's SME2 matrix units. Turn off to use NEON."
     }
 
     private var appVersion: String {

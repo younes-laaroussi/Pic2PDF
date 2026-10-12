@@ -85,6 +85,8 @@ struct MainGenerationView: View {
     @State private var showEditorView = false
 
     @StateObject private var onDeviceLLMService = OnDeviceLLMService.shared
+    /// Observed so the acceleration label updates as soon as the Settings toggle changes.
+    @AppStorage(SME2Support.enabledKey) private var sme2Enabled = true
 
     @EnvironmentObject var storageManager: StorageManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -248,10 +250,12 @@ struct MainGenerationView: View {
                 .disabled(viewModel.isGenerating)
             }
 
-            if onDeviceLLMService.isInitialized, let mode = onDeviceLLMService.accelerationMode {
-                Label("On-device · \(mode.displayName)", systemImage: "cpu")
+            // Read-only: mirrors Settings, and names what XNNPACK actually runs.
+            if onDeviceLLMService.isInitialized, onDeviceLLMService.accelerationMode != nil, let status = SME2Support.status {
+                Label(status.summary, systemImage: "cpu")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: 560)
