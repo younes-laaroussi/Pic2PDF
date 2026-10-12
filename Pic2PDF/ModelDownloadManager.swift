@@ -19,7 +19,9 @@ struct DownloadableModelConfig {
     /// SHA-256 of the .task file, checked before the download is kept.
     let sha256: String
 
-    /// Cloudflare R2 bucket with the .task files.
+    /// Public Hugging Face repo that mirrors the .task files. Tried first: work networks rarely block it.
+    static let huggingFaceRepo = "youneslaaroussi/img2latex-models"
+    /// Cloudflare R2 bucket, the original host. Kept as a fallback; some network filters block r2.dev.
     static let r2BaseURL = "https://pub-69c747d5957f4104a2f87b0aca35a2af.r2.dev"
 
     // Unmodified copies of the int4 .task files from google/gemma-3n-E2B-it-litert-preview
@@ -41,6 +43,7 @@ struct DownloadableModelConfig {
 
     private static func mirrors(for model: ModelIdentifier) -> [URL] {
         return [
+            URL(string: "https://huggingface.co/\(huggingFaceRepo)/resolve/main/\(model.fileName)")!,
             URL(string: "\(r2BaseURL)/\(model.fileName)")!
         ]
     }

@@ -103,9 +103,9 @@ A quick check on an M4 MacBook Air (32 GB) with the in-app benchmark: one warm-u
 
 ### The model
 
-The model isn't in the repository. The app downloads it on first use (welcome screen, or Settings → AI Model): `gemma-3n-E2B-it-int4.task`, about 3.1 GB. It downloads from Cloudflare R2 and keeps the file only if its SHA-256 matches. The file is an unmodified copy of Google's [LiteRT release](https://huggingface.co/google/gemma-3n-E2B-it-litert-preview). The mirror list and checksums are in `ModelDownloadManager.swift`.
+The model isn't in the repository. The app downloads it on first use (welcome screen, or Settings → AI Model): `gemma-3n-E2B-it-int4.task`, about 3.1 GB. It tries [Hugging Face](https://huggingface.co/youneslaaroussi/img2latex-models) first, then Cloudflare R2, and keeps the file only if its SHA-256 matches. Both hold unmodified copies of Google's [LiteRT release](https://huggingface.co/google/gemma-3n-E2B-it-litert-preview), which is gated on Hugging Face. The mirror list and checksums are in `ModelDownloadManager.swift`.
 
-If your network blocks the download, the app says so. Download the file on another network and copy it into the app's `Documents/Models/` folder. On a Mac that's `~/Library/Containers/<bundle identifier>/Data/Documents/Models/`.
+If your network blocks both, the app says so. Download the file on another network and copy it into the app's `Documents/Models/` folder. On a Mac that's `~/Library/Containers/<bundle identifier>/Data/Documents/Models/`.
 
 ### The iOS Simulator
 
